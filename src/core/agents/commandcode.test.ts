@@ -84,13 +84,14 @@ describe("CommandCodeAgent", () => {
   it("spawns command-code in print mode with automation defaults", () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
-    const agent = new CommandCodeAgent({ platform: "win32" });
+    const agent = new CommandCodeAgent({ platform: "darwin" });
 
     agent.run("test prompt", "/work/dir");
 
     const args = mockSpawn.mock.calls[0]![1] as string[];
     expect(mockSpawn).toHaveBeenCalledWith("command-code", args, {
       cwd: "/work/dir",
+      detached: true,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
@@ -115,7 +116,7 @@ describe("CommandCodeAgent", () => {
     expect(mockSpawn).toHaveBeenCalledWith(
       "C:\\tools\\command-code.cmd",
       expect.any(Array),
-      expect.objectContaining({ shell: true }),
+      expect.objectContaining({ detached: false, shell: true }),
     );
   });
 
@@ -244,6 +245,28 @@ describe("CommandCodeAgent", () => {
     await expect(promise).rejects.toThrow(
       "commandcode hit --max-turns before completion",
     );
+  });
+
+  it("kills the process group on Unix when aborted", async () => {
+    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    try {
+      const proc = createMockProcess();
+      Object.defineProperty(proc, "pid", { value: 4321 });
+      mockSpawn.mockReturnValue(proc);
+      const controller = new AbortController();
+      const agent = new CommandCodeAgent({ platform: "darwin" });
+
+      const promise = agent.run("test prompt", "/work/dir", {
+        signal: controller.signal,
+      });
+      controller.abort();
+
+      await expect(promise).rejects.toThrow("Agent was aborted");
+      expect(processKill).toHaveBeenCalledWith(-4321, "SIGTERM");
+      expect(proc.kill).not.toHaveBeenCalled();
+    } finally {
+      processKill.mockRestore();
+    }
   });
 
   it("kills the full process tree on Windows when aborted", async () => {

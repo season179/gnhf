@@ -85,6 +85,15 @@ function terminateCommandCodeProcess(
     return;
   }
 
+  if (child.pid) {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+      return;
+    } catch {
+      // Fall back to the direct child if it was not started as a process group.
+    }
+  }
+
   child.kill("SIGTERM");
 }
 
@@ -238,6 +247,7 @@ export class CommandCodeAgent implements Agent {
         buildCommandCodeArgs(prompt, this.schema, this.extraArgs),
         {
           cwd,
+          detached: this.platform !== "win32",
           shell: shouldUseWindowsShell(this.bin, this.platform),
           stdio: ["ignore", "pipe", "pipe"],
           env: process.env,
