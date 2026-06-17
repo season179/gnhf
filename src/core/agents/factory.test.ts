@@ -315,6 +315,30 @@ describe("createAgent", () => {
     });
   });
 
+  it("hands CommandCodeAgent a schema with configured commit message fields", () => {
+    createAgent("commandcode", stubRunInfo, undefined, undefined, {
+      includeStopField: false,
+      commitFields: [
+        { name: "type", allowed: ["feat", "fix"] },
+        { name: "scope" },
+      ],
+    });
+
+    expect(CommandCodeAgent).toHaveBeenCalledWith({
+      bin: undefined,
+      extraArgs: undefined,
+      schema: {
+        ...noStopSchema,
+        properties: {
+          ...noStopSchema.properties,
+          type: { type: "string", enum: ["feat", "fix"] },
+          scope: { type: "string" },
+        },
+        required: [...noStopSchema.required, "type", "scope"],
+      },
+    });
+  });
+
   it("creates a CursorAgent when name is 'cursor'", () => {
     const agent = createAgent("cursor", stubRunInfo, undefined, undefined, {
       includeStopField: false,
