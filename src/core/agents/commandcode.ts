@@ -199,12 +199,23 @@ function parseCommandCodeOutput(
   );
 }
 
-function isPermanentCommandCodeError(stderr: string): boolean {
+function isCommandCodeAuthError(stderr: string): boolean {
   return (
     /not logged in/i.test(stderr) ||
     /authentication required/i.test(stderr) ||
     /invalid api key/i.test(stderr) ||
     /run\s+`?cmd login`?/i.test(stderr)
+  );
+}
+
+// Command Code's "Usage exceeded" error fires when the account has consumed its
+// plan's usage limits for the billing period. Like Claude's "credit balance too
+// low", retrying just burns gnhf's retry budget and backoff for a condition only
+// a plan upgrade or billing reset can clear, so treat it as permanent.
+function isCommandCodeUsageError(stderr: string): boolean {
+  return (
+    /usage\s+exceeded/i.test(stderr) ||
+    /exceeded your.*usage\s+limit/i.test(stderr)
   );
 }
 
@@ -223,8 +234,14 @@ function createCommandCodeExitError(
       `commandcode hit --max-turns before completion: ${stderr.trim()}`,
     );
   }
-  if (isPermanentCommandCodeError(stderr)) {
-    const detail = stderr.trim();
+  const detail = stderr.trim();
+  if (isCommandCodeUsageError(stderr)) {
+    return new PermanentAgentError(
+      "commandcode usage limit reached - upgrade your plan or wait for the billing period to reset",
+      detail,
+    );
+  }
+  if (isCommandCodeAuthError(stderr)) {
     return new PermanentAgentError("commandcode authentication failed", detail);
   }
   return new Error(`commandcode exited with code ${code}: ${stderr.trim()}`);

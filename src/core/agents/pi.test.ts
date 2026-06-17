@@ -7,8 +7,8 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { execFileSync, spawn } from "node:child_process";
-import { PiAgent } from "./pi.js";
-import { buildAgentOutputSchema } from "./types.js";
+import { PiAgent, selectAgentJson } from "./pi.js";
+import { buildAgentOutputSchema, validateAgentOutput } from "./types.js";
 
 const mockSpawn = vi.mocked(spawn);
 
@@ -453,5 +453,208 @@ describe("PiAgent", () => {
     proc.emit("close", 2);
 
     await expect(promise).rejects.toThrow("pi exited with code 2: bad things");
+  });
+
+  // The real-world failure mode: pi emits a valid structured object in one turn,
+  // then keeps working and ends with a prose summary in later turns.
+  it("recovers the structured output emitted before later prose turns", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new PiAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    emitJson(proc, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        responseId: "r1",
+        content: [{ type: "text", text: finalOutput({ summary: "the real answer" }) }],
+      },
+    });
+    emitJson(proc, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        responseId: "r2",
+        content: [
+          { type: "text", text: "No background processes running.\n\n## Summary\nDone." },
+        ],
+      },
+    });
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: { success: true, summary: "the real answer" },
+    });
+  });
+
+  it("does not collide when later turns reuse contentIndex 0", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new PiAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    // Turn 1: structured JSON at contentIndex 0.
+    emitJson(proc, {
+      type: "message_update",
+      message: { role: "assistant", responseId: "r1" },
+      assistantMessageEvent: {
+        type: "text_end",
+        contentIndex: 0,
+        text: finalOutput({ summary: "kept" }),
+      },
+    });
+    emitJson(proc, {
+      type: "message_end",
+      message: { role: "assistant", responseId: "r1" },
+    });
+    // Turn 2: prose, also at contentIndex 0 — must not overwrite turn 1.
+    emitJson(proc, {
+      type: "message_update",
+      message: { role: "assistant", responseId: "r2" },
+      assistantMessageEvent: {
+        type: "text_end",
+        contentIndex: 0,
+        text: "all green, nothing else to do",
+      },
+    });
+    emitJson(proc, {
+      type: "message_end",
+      message: { role: "assistant", responseId: "r2" },
+    });
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: { success: true, summary: "kept" },
+    });
+  });
+
+  it("joins multiple content blocks and extracts JSON embedded with prose", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new PiAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    emitJson(proc, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        responseId: "r1",
+        content: [
+          { type: "text", text: finalOutput({ summary: "blocky" }) },
+          { type: "text", text: "\n\nThat completes the iteration." },
+        ],
+      },
+    });
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: { success: true, summary: "blocky" },
+    });
+  });
+
+  it("separates anonymous turns at turn_start so index reuse does not clobber", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new PiAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    // Anonymous messages (no responseId): turn boundaries come from turn_start.
+    emitJson(proc, { type: "turn_start", message: { role: "assistant" } });
+    emitJson(proc, {
+      type: "message_update",
+      message: { role: "assistant" },
+      assistantMessageEvent: {
+        type: "text_end",
+        contentIndex: 0,
+        text: finalOutput({ summary: "first turn" }),
+      },
+    });
+    emitJson(proc, { type: "turn_start", message: { role: "assistant" } });
+    emitJson(proc, {
+      type: "message_update",
+      message: { role: "assistant" },
+      assistantMessageEvent: {
+        type: "text_end",
+        contentIndex: 0,
+        text: "wrap-up prose, no json",
+      },
+    });
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: { success: true, summary: "first turn" },
+    });
+  });
+});
+
+describe("selectAgentJson", () => {
+  const schema = buildAgentOutputSchema({ includeStopField: false });
+  const accepts = (value: unknown): boolean => {
+    try {
+      validateAgentOutput(value, schema);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const good = (summary: string) =>
+    JSON.stringify({
+      success: true,
+      summary,
+      key_changes_made: [],
+      key_learnings: [],
+    });
+
+  it("returns a whole-segment pure-JSON object", () => {
+    const result = selectAgentJson([good("a")], accepts) as { summary: string };
+    expect(result.summary).toBe("a");
+  });
+
+  it("returns JSON from an earlier segment when later segments are prose", () => {
+    const result = selectAgentJson(
+      [good("a"), "done.\n\n## Summary\nfinished"],
+      accepts,
+    ) as { summary: string };
+    expect(result.summary).toBe("a");
+  });
+
+  it("extracts a JSON object embedded in prose", () => {
+    const result = selectAgentJson(
+      [`Here is the result: ${good("a")} — thanks!`],
+      accepts,
+    ) as { summary: string };
+    expect(result.summary).toBe("a");
+  });
+
+  it("prefers a pure-JSON turn over a trailing fenced example", () => {
+    const result = selectAgentJson(
+      [good("real"), `For reference:\n\`\`\`json\n${good("example")}\n\`\`\``],
+      accepts,
+    ) as { summary: string };
+    expect(result.summary).toBe("real");
+  });
+
+  it("returns the most recent valid pure-JSON segment", () => {
+    const result = selectAgentJson([good("old"), good("new")], accepts) as {
+      summary: string;
+    };
+    expect(result.summary).toBe("new");
+  });
+
+  it("returns null when no segment contains JSON", () => {
+    expect(selectAgentJson(["just prose", "more prose"], accepts)).toBeNull();
+  });
+
+  it("falls back to a parseable but schema-invalid object for diagnostics", () => {
+    const invalid = JSON.stringify({
+      success: "yes",
+      summary: "x",
+      key_changes_made: [],
+      key_learnings: [],
+    });
+    const result = selectAgentJson([invalid], accepts) as { success: unknown };
+    expect(result).not.toBeNull();
+    expect(result.success).toBe("yes");
   });
 });

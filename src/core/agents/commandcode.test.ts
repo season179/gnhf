@@ -384,6 +384,22 @@ describe("CommandCodeAgent", () => {
     await expect(promise).rejects.toThrow("commandcode authentication failed");
   });
 
+  it("raises PermanentAgentError when plan usage is exceeded", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit(
+      "data",
+      Buffer.from("Usage exceeded: you exceeded your plan's usage limits"),
+    );
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode usage limit reached");
+  });
+
   it("rejects max-turn exits with a clear error", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
