@@ -122,6 +122,27 @@ function createMockOpencodeEnv(
   };
 }
 
+function createMockCursorEnv(
+  temp: TempCleanup,
+  configYaml: string,
+): { env: NodeJS.ProcessEnv; mockLogPath: string } {
+  const home = temp.mkdir("home");
+  mkdirSync(join(home, ".gnhf"), { recursive: true });
+  writeFileSync(join(home, ".gnhf", "config.yml"), configYaml, "utf-8");
+  const logDir = temp.mkdir("logs");
+  const mockLogPath = join(logDir, "mock-cursor.jsonl");
+  return {
+    env: {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      PATH: `${fixtureBinDir}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
+      GNHF_MOCK_CURSOR_LOG_PATH: mockLogPath,
+    },
+    mockLogPath,
+  };
+}
+
 async function withTemp<T>(fn: (temp: TempCleanup) => Promise<T>): Promise<T> {
   const temp = new TempCleanup();
   try {
@@ -193,6 +214,66 @@ describe.concurrent("gnhf e2e cli", () => {
       expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
       const mockLog = readFileSync(mockLogPath, "utf-8");
       expect(mockLog).toContain('"event":"server:start"');
+    });
+  }, 30_000);
+
+  it("runs Cursor through the native stream-json adapter", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCursorEnv(
+        temp,
+        [
+          "agent: cursor",
+          "agentPathOverride:",
+          "  cursor: cursor-mock",
+          "agentArgsOverride:",
+          "  cursor:",
+          "    - --model",
+          "    - gpt-5",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+      expect(git(["log", "-1", "--pretty=%s"], cwd)).toBe(
+        "gnhf 1: mock cursor completed",
+      );
+      expect(readFileSync(join(cwd, "README.md"), "utf-8")).toContain(
+        "mock cursor change",
+      );
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        args: string[];
+        prompt: string;
+      };
+      expect(invoke.event).toBe("invoke");
+      expect(invoke.args.at(-1)).toContain("ship it");
+      expect(invoke.args).toEqual(
+        expect.arrayContaining([
+          "agent",
+          "--model",
+          "gpt-5",
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--stream-partial-output",
+          "--trust",
+          "--force",
+        ]),
+      );
+      expect(invoke.prompt).toContain("ship it");
+      expect(invoke.prompt).toContain("gnhf final output contract");
     });
   }, 30_000);
 
@@ -304,6 +385,11 @@ describe.concurrent("gnhf e2e cli", () => {
     {
       label: "agentArgsOverride.copilot: gnhf-managed flag",
       yaml: "agentArgsOverride:\n  copilot:\n    - --output-format=json\n",
+      expected: "managed by gnhf",
+    },
+    {
+      label: "agentArgsOverride.cursor: gnhf-managed flag",
+      yaml: "agentArgsOverride:\n  cursor:\n    - --output-format=stream-json\n",
       expected: "managed by gnhf",
     },
   ])(

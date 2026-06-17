@@ -13,6 +13,7 @@ export function setupChildProcessHandlers(
   logStream: WriteStream | null,
   reject: (err: Error) => void,
   onSuccess: () => void,
+  createExitError?: (code: number | null, stderr: string) => Error,
 ): void {
   let stderr = "";
 
@@ -27,7 +28,10 @@ export function setupChildProcessHandlers(
   child.on("close", (code) => {
     logStream?.end();
     if (code !== 0) {
-      reject(new Error(`${agentName} exited with code ${code}: ${stderr}`));
+      reject(
+        createExitError?.(code, stderr) ??
+          new Error(`${agentName} exited with code ${code}: ${stderr}`),
+      );
       return;
     }
     onSuccess();
@@ -44,6 +48,15 @@ export function parseJSONLStream<T>(
   callback: (event: T) => void,
 ): void {
   let buffer = "";
+  const parseLine = (line: string) => {
+    if (!line.trim()) return;
+    try {
+      callback(JSON.parse(line) as T);
+    } catch {
+      // Skip unparseable lines
+    }
+  };
+
   stream.on("data", (data: Buffer) => {
     logStream?.write(data);
     buffer += data.toString();
@@ -51,13 +64,13 @@ export function parseJSONLStream<T>(
     buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        callback(JSON.parse(line) as T);
-      } catch {
-        // Skip unparseable lines
-      }
+      parseLine(line);
     }
+  });
+
+  stream.on("end", () => {
+    parseLine(buffer);
+    buffer = "";
   });
 }
 

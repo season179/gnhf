@@ -35,6 +35,7 @@ const BOOTSTRAP_CONFIG_TEMPLATE = (agent: string) =>
     "#   claude: /path/to/custom-claude",
     "#   codex: /path/to/custom-codex",
     "#   copilot: /path/to/custom-copilot",
+    "#   cursor: /path/to/custom-cursor",
     "#   pi: /path/to/custom-pi",
     "",
     "# Native agent CLI arg overrides (optional)",
@@ -49,6 +50,9 @@ const BOOTSTRAP_CONFIG_TEMPLATE = (agent: string) =>
     "#   copilot:",
     "#     - --model",
     "#     - gpt-5.4",
+    "#   cursor:",
+    "#     - --model",
+    "#     - gpt-5",
     "#   pi:",
     "#     - --provider",
     "#     - openai-codex",
@@ -320,6 +324,9 @@ describe("loadConfig", () => {
         "  copilot:",
         "    - --model",
         "    - gpt-5.4",
+        "  cursor:",
+        "    - --model",
+        "    - gpt-5",
         "  pi:",
         "    - --provider",
         "    - openai-codex",
@@ -339,6 +346,7 @@ describe("loadConfig", () => {
       rovodev: ["--profile", "work"],
       opencode: ["--model", "gpt-5"],
       copilot: ["--model", "gpt-5.4"],
+      cursor: ["--model", "gpt-5"],
       pi: [
         "--provider",
         "openai-codex",
@@ -434,6 +442,427 @@ describe("loadConfig", () => {
       claude: ["--dangerously-skip-permissions"],
     });
   });
+
+  it("allows agentArgsOverride.cursor to set a permission mode explicitly", () => {
+    mockReadFileSync.mockReturnValue(
+      "agentArgsOverride:\n  cursor:\n    - --yolo\n",
+    );
+
+    const config = loadConfig();
+
+    expect(config.agentArgsOverride).toEqual({
+      cursor: ["--yolo"],
+    });
+  });
+
+  it("allows agentArgsOverride.cursor to set the short force flag explicitly", () => {
+    mockReadFileSync.mockReturnValue(
+      "agentArgsOverride:\n  cursor:\n    - -f\n",
+    );
+
+    const config = loadConfig();
+
+    expect(config.agentArgsOverride).toEqual({
+      cursor: ["-f"],
+    });
+  });
+
+  it("allows agentArgsOverride.cursor to pass value-taking flags with values", () => {
+    mockReadFileSync.mockReturnValue(
+      [
+        "agentArgsOverride:",
+        "  cursor:",
+        "    - --endpoint",
+        "    - https://api.cursor.test",
+        "    - --model",
+        "    - gpt-5",
+        "    - -H",
+        "    - 'X-Cursor-Mode: ci'",
+        "    - --header",
+        "    - 'Authorization: Bearer token'",
+        "    - --plugin-dir",
+        "    - ./plugins/cursor",
+        "    - --plugin-dir",
+        "    - agent",
+        "    - '--header=Accept: application/json'",
+        "    - --mode=ask",
+        "    - --sandbox",
+        "    - enabled",
+        "    - --insecure",
+        "    - -k",
+        "    - --endpoint=https://api2.cursor.test",
+        "    - -ehttps://api3.cursor.test",
+        "    - -e=https://api4.cursor.test",
+        "    - '-HX-Trace: enabled'",
+        "    - '-H=X-Trace-Assign: enabled'",
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig();
+
+    expect(config.agentArgsOverride).toEqual({
+      cursor: [
+        "--endpoint",
+        "https://api.cursor.test",
+        "--model",
+        "gpt-5",
+        "-H",
+        "X-Cursor-Mode: ci",
+        "--header",
+        "Authorization: Bearer token",
+        "--plugin-dir",
+        "./plugins/cursor",
+        "--plugin-dir",
+        "agent",
+        "--header=Accept: application/json",
+        "--mode=ask",
+        "--sandbox",
+        "enabled",
+        "--insecure",
+        "-k",
+        "--endpoint=https://api2.cursor.test",
+        "-ehttps://api3.cursor.test",
+        "-e=https://api4.cursor.test",
+        "-HX-Trace: enabled",
+        "-H=X-Trace-Assign: enabled",
+      ],
+    });
+  });
+
+  it.each([
+    "--endpoint",
+    "-e",
+    "--model",
+    "--header",
+    "-H",
+    "--plugin-dir",
+    "--mode",
+    "--sandbox",
+  ])(
+    "throws when agentArgsOverride.cursor contains value flag %s without a value",
+    (flag) => {
+      mockReadFileSync.mockReturnValue(
+        `agentArgsOverride:\n  cursor:\n    - ${flag}\n`,
+      );
+
+      expect(() => loadConfig()).toThrow(
+        /agentArgsOverride\.cursor\[0\].*requires a following value/,
+      );
+    },
+  );
+
+  it("throws when agentArgsOverride.cursor value flag would consume another flag", () => {
+    mockReadFileSync.mockReturnValue(
+      "agentArgsOverride:\n  cursor:\n    - --header\n    - --model\n    - gpt-5\n",
+    );
+
+    expect(() => loadConfig()).toThrow(
+      /agentArgsOverride\.cursor\[0\].*requires a following value/,
+    );
+  });
+
+  it("throws when agentArgsOverride.cursor contains an empty inline value", () => {
+    mockReadFileSync.mockReturnValue(
+      "agentArgsOverride:\n  cursor:\n    - --endpoint=\n",
+    );
+
+    expect(() => loadConfig()).toThrow(
+      /agentArgsOverride\.cursor\[0\].*requires a non-empty value/,
+    );
+  });
+
+  it.each([
+    ["--mode", "write", /plan.*ask/],
+    ["--mode=write", undefined, /plan.*ask/],
+    ["--sandbox", "ask", /enabled.*disabled/],
+    ["--sandbox=ask", undefined, /enabled.*disabled/],
+  ])(
+    "throws when agentArgsOverride.cursor contains unsupported value for %s",
+    (flag, value, expected) => {
+      const entries =
+        value === undefined
+          ? [`    - ${flag}`]
+          : [`    - ${flag}`, `    - ${value}`];
+      mockReadFileSync.mockReturnValue(
+        ["agentArgsOverride:", "  cursor:", ...entries, ""].join("\n"),
+      );
+
+      expect(() => loadConfig()).toThrow(expected);
+    },
+  );
+
+  it.each([
+    ["--header", "Authorization", /Name: Value/],
+    ["--header=Authorization", undefined, /Name: Value/],
+    ["--header", "Bad Header: token", /valid header name/],
+    ["--header", "Authorization : Bearer token", /valid header name/],
+    ["'--header= Authorization: Bearer token'", undefined, /valid header name/],
+    ["'--header==Authorization: Bearer token'", undefined, /valid header name/],
+    ["-H", ": Bearer token", /Name: Value/],
+    ["-H", "Authorization:   ", /Name: Value/],
+    ["'-HBad Header: token'", undefined, /valid header name/],
+    ["-HAuthorization", undefined, /Name: Value/],
+    ["'-H=Bad Header: token'", undefined, /valid header name/],
+  ])(
+    "throws when agentArgsOverride.cursor contains malformed header value for %s",
+    (flag, value, expected) => {
+      const entries =
+        value === undefined
+          ? [`    - ${flag}`]
+          : [`    - ${flag}`, `    - '${value}'`];
+      mockReadFileSync.mockReturnValue(
+        ["agentArgsOverride:", "  cursor:", ...entries, ""].join("\n"),
+      );
+
+      expect(() => loadConfig()).toThrow(expected);
+    },
+  );
+
+  it("throws when agentArgsOverride.cursor contains positional prompt text", () => {
+    mockReadFileSync.mockReturnValue(
+      "agentArgsOverride:\n  cursor:\n    - --approve-mcps\n    - write docs\n",
+    );
+
+    expect(() => loadConfig()).toThrow(
+      /agentArgsOverride\.cursor\[1\].*prompt text/,
+    );
+  });
+
+  it.each(["-f=false", "-ffalse", "-k=false", "-kfalse"])(
+    "throws when agentArgsOverride.cursor contains malformed short boolean flag %s",
+    (flag) => {
+      mockReadFileSync.mockReturnValue(
+        `agentArgsOverride:\n  cursor:\n    - ${flag}\n`,
+      );
+
+      expect(() => loadConfig()).toThrow(
+        /agentArgsOverride\.cursor\[0\].*not supported by Cursor/,
+      );
+    },
+  );
+
+  it.each([
+    "--approve-mcps=false",
+    "--force=false",
+    "--insecure=false",
+    "--plan=false",
+    "--yolo=false",
+  ])(
+    "throws when agentArgsOverride.cursor contains boolean assignment %s",
+    (flag) => {
+      mockReadFileSync.mockReturnValue(
+        `agentArgsOverride:\n  cursor:\n    - ${flag}\n`,
+      );
+
+      expect(() => loadConfig()).toThrow(
+        /agentArgsOverride\.cursor\[0\].*bare flag/,
+      );
+    },
+  );
+
+  it.each([
+    "--no-approve-mcps",
+    "--no-approve-mcps=false",
+    "--no-force",
+    "--no-force=true",
+    "--no-insecure",
+    "--no-insecure=true",
+    "--no-plan",
+    "--no-plan=false",
+    "--no-yolo",
+    "--no-yolo=true",
+  ])(
+    "throws when agentArgsOverride.cursor contains negated boolean flag %s",
+    (flag) => {
+      mockReadFileSync.mockReturnValue(
+        `agentArgsOverride:\n  cursor:\n    - ${flag}\n`,
+      );
+
+      expect(() => loadConfig()).toThrow(
+        /agentArgsOverride\.cursor\[0\].*bare positive flag form/,
+      );
+    },
+  );
+
+  it.each([
+    "--no-header",
+    "--no-header=true",
+    "--no-endpoint",
+    "--no-endpoint=https://api.cursor.test",
+    "--no-model",
+    "--no-model=gpt-5",
+    "--no-mode",
+    "--no-mode=plan",
+    "--no-plugin-dir",
+    "--no-plugin-dir=./plugins",
+    "--no-sandbox",
+    "--no-sandbox=enabled",
+  ])(
+    "throws when agentArgsOverride.cursor contains negated value flag %s",
+    (flag) => {
+      mockReadFileSync.mockReturnValue(
+        `agentArgsOverride:\n  cursor:\n    - ${flag}\n`,
+      );
+
+      expect(() => loadConfig()).toThrow(
+        /agentArgsOverride\.cursor\[0\].*positive value flag form/,
+      );
+    },
+  );
+
+  it.each([
+    "--workspace",
+    "--workspace=/tmp/other-repo",
+    "-w",
+    "--worktree",
+    "--worktree=feature",
+    "--worktree-base",
+    "--worktree-base=main",
+    "--skip-worktree-setup",
+    "--skip-worktree-setup=true",
+    "--worker-dir",
+    "--worker-dir=/tmp/project",
+    "--auth-token-file",
+    "--auth-token-file=/tmp/token",
+    "--management-addr",
+    "--management-addr=:8080",
+    "--label",
+    "--label=env=ci",
+    "--labels-file",
+    "--labels-file=/tmp/labels.json",
+    "--idle-release-timeout",
+    "--idle-release-timeout=60",
+    "--pool",
+    "--pool=true",
+    "--single-use",
+    "--single-use=true",
+    "--pool-name",
+    "--pool-name=default",
+    "--name",
+    "--name=ci-worker",
+    "--data-dir",
+    "--data-dir=/tmp/cursor",
+    "--debug",
+    "--debug=true",
+    "--resume",
+    "--resume=chat-id",
+    "--continue",
+    "--continue=true",
+    "--list-models",
+    "--list-models=true",
+    "--format",
+    "--format=json",
+    "--no-format",
+    "--no-format=json",
+    "--json",
+    "--json=true",
+    "--verbose",
+    "--verbose=true",
+    "--chat",
+    "--chat=true",
+    "--log",
+    "--log=info",
+    "--mcp-workspace",
+    "--mcp-workspace=true",
+    "--user-data-dir",
+    "--user-data-dir=/tmp/cursor-user",
+    "--install-extension=publisher.name",
+    "--sync=off",
+    "--telemetry",
+    "--no-chat",
+    "--no-log=info",
+    "--api-key",
+    "--api-key=secret",
+    "--no-api-key",
+    "--auth-token",
+    "--auth-token=secret",
+    "--no-auth-token",
+    "--no-auth-token=true",
+    "--no-auth-token-file",
+    "--no-continue",
+    "--no-data-dir",
+    "--no-debug",
+    "--no-idle-release-timeout",
+    "--no-json",
+    "--no-label",
+    "--no-labels-file",
+    "--no-list-models",
+    "--no-management-addr",
+    "--no-mcp-workspace",
+    "--no-name",
+    "--no-output-format",
+    "--no-pool",
+    "--no-pool-name",
+    "--no-print",
+    "--no-resume",
+    "--no-resume=true",
+    "--no-single-use",
+    "--no-skip-worktree-setup",
+    "--no-stream-partial-output",
+    "--no-trust",
+    "--no-verbose",
+    "--no-worker-dir",
+    "--no-worker-dir=true",
+    "--no-workspace",
+    "--no-worktree",
+    "--no-worktree-base",
+    "--print=false",
+    "--stream-partial-output=false",
+    "--trust=false",
+    "--",
+    "-v",
+    "-v=false",
+    "-vfalse",
+    "--version",
+    "--version=true",
+    "-h",
+    "-h=false",
+    "-hfalse",
+    "--help",
+    "--help=true",
+    "-p=false",
+    "-pfalse",
+    "-w=feature",
+    "-wfeature",
+    "-s",
+    "-s=false",
+    "-n",
+    "-nfalse",
+    "-dfile",
+    "-m=left",
+    "about",
+    "acp",
+    "agent",
+    "create-chat",
+    "generate-rule",
+    "help",
+    "install-shell-integration",
+    "ls",
+    "login",
+    "logout",
+    "mcp",
+    "models",
+    "resume",
+    "rule",
+    "status",
+    "tunnel",
+    "uninstall-shell-integration",
+    "update",
+    "whoami",
+    "worker",
+  ])(
+    "throws when agentArgsOverride.cursor contains reserved flag %s",
+    (flag) => {
+      mockReadFileSync.mockReturnValue(
+        `agentArgsOverride:\n  cursor:\n    - ${flag}\n`,
+      );
+
+      expect(() => loadConfig()).toThrow(
+        /agentArgsOverride\.cursor\[0\].*managed by gnhf/,
+      );
+    },
+  );
 
   it("allows safe agentArgsOverride.pi flags", () => {
     mockReadFileSync.mockReturnValue(

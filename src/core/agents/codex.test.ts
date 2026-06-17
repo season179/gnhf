@@ -8,6 +8,7 @@ vi.mock("node:child_process", () => ({
 
 import { execFileSync, spawn } from "node:child_process";
 import { CodexAgent } from "./codex.js";
+import { PermanentAgentError } from "./types.js";
 
 const mockSpawn = vi.mocked(spawn);
 
@@ -202,5 +203,59 @@ describe("CodexAgent", () => {
       { stdio: "ignore" },
     );
     expect(proc.kill).not.toHaveBeenCalled();
+  });
+
+  it("uses structured Codex error events when the process exits non-zero", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CodexAgent("/tmp/schema.json");
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stdout.emit(
+      "data",
+      Buffer.from(
+        `${JSON.stringify({
+          type: "turn.failed",
+          error: { message: "Model temporarily unavailable" },
+        })}\n`,
+      ),
+    );
+    proc.stderr.emit(
+      "data",
+      Buffer.from("Reading additional input from stdin...\n"),
+    );
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.toThrow(
+      "codex exited with code 1: Model temporarily unavailable",
+    );
+  });
+
+  it("treats Codex usage-limit errors as permanent", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CodexAgent("/tmp/schema.json");
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stdout.emit(
+      "data",
+      Buffer.from(
+        `${JSON.stringify({
+          type: "error",
+          message:
+            "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 5:58 AM.",
+        })}\n`,
+      ),
+    );
+    proc.stderr.emit(
+      "data",
+      Buffer.from("Reading additional input from stdin...\n"),
+    );
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow(
+      "codex usage limit reached - see gnhf.log",
+    );
   });
 });
