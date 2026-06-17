@@ -265,6 +265,23 @@ describe("CommandCodeAgent", () => {
     });
   });
 
+  it("treats missing command-code spawn errors as permanent", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    const error = Object.assign(new Error("spawn command-code ENOENT"), {
+      code: "ENOENT",
+    });
+    proc.emit("error", error);
+
+    await expect(promise).rejects.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow(
+      "command-code executable was not found",
+    );
+  });
+
   it("raises PermanentAgentError when authentication fails", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

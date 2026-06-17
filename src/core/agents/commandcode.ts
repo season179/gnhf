@@ -289,9 +289,11 @@ export class CommandCodeAgent implements Agent {
         logStream,
         (err) => {
           if (isMissingCommandCodeBinary(err)) {
+            const detail = `Failed to spawn commandcode: ${this.bin} not found on PATH`;
             reject(
-              new Error(
-                `Failed to spawn commandcode: ${this.bin} not found on PATH`,
+              new PermanentAgentError(
+                "command-code executable was not found - install Command Code or configure agentPathOverride.commandcode",
+                detail,
               ),
             );
             return;
