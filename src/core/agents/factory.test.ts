@@ -304,6 +304,17 @@ describe("createAgent", () => {
     expect(agent.name).toBe("commandcode");
   });
 
+  it("hands CommandCodeAgent a schema that requires should_fully_stop when includeStopField is true", () => {
+    createAgent("commandcode", stubRunInfo, undefined, undefined, {
+      includeStopField: true,
+    });
+    expect(CommandCodeAgent).toHaveBeenCalledWith({
+      bin: undefined,
+      extraArgs: undefined,
+      schema: withStopSchema,
+    });
+  });
+
   it("creates a CursorAgent when name is 'cursor'", () => {
     const agent = createAgent("cursor", stubRunInfo, undefined, undefined, {
       includeStopField: false,

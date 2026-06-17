@@ -31,9 +31,9 @@ describe("buildCommandCodeArgs", () => {
 
   it("adds print mode defaults for automated runs", () => {
     const args = buildCommandCodeArgs("test prompt", schema);
-    expect(args[0]).toBe("-p");
-    expect(args[1]).toContain("test prompt");
-    expect(args[1]).toContain("gnhf final output contract");
+    expect(args.at(-2)).toBe("-p");
+    expect(args.at(-1)).toContain("test prompt");
+    expect(args.at(-1)).toContain("gnhf final output contract");
     expect(args).toEqual(
       expect.arrayContaining([
         "--trust",
@@ -43,6 +43,22 @@ describe("buildCommandCodeArgs", () => {
         "30",
       ]),
     );
+  });
+
+  it("places automation flags before -p and the prompt", () => {
+    const args = buildCommandCodeArgs("test prompt", schema);
+    const printIndex = args.indexOf("-p");
+    expect(printIndex).toBeGreaterThan(-1);
+    expect(args.slice(0, printIndex)).toEqual(
+      expect.arrayContaining([
+        "--trust",
+        "--skip-onboarding",
+        "--yolo",
+        "--max-turns",
+        "30",
+      ]),
+    );
+    expect(args[printIndex + 1]).toContain("test prompt");
   });
 
   it("suppresses the default max-turns cap when user args specify one", () => {
@@ -73,6 +89,8 @@ describe("buildCommandCodeArgs", () => {
     expect(args).not.toContain("--yolo");
     expect(args.filter((arg) => arg === "--trust")).toHaveLength(1);
     expect(args.filter((arg) => arg === "--skip-onboarding")).toHaveLength(1);
+    expect(args.at(-2)).toBe("-p");
+    expect(args.at(-1)).toContain("test prompt");
   });
 });
 
@@ -111,8 +129,8 @@ describe("CommandCodeAgent", () => {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
     });
-    expect(args[0]).toBe("-p");
-    expect(args[1]).toContain("test prompt");
+    expect(args.at(-2)).toBe("-p");
+    expect(args.at(-1)).toContain("test prompt");
     expect(args).toEqual(
       expect.arrayContaining([
         "--trust",

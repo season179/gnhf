@@ -151,14 +151,14 @@ export function buildCommandCodeArgs(
 
   return [
     ...userArgs,
-    "-p",
-    buildCommandCodePrompt(prompt, schema),
     ...(userSpecifiedTrustMode(userArgs) ? [] : ["--trust"]),
     ...(userSpecifiedOnboardingMode(userArgs) ? [] : ["--skip-onboarding"]),
     ...(userSpecifiedPermissionMode(userArgs) ? [] : ["--yolo"]),
     ...(userSpecifiedMaxTurns(userArgs)
       ? []
       : ["--max-turns", String(DEFAULT_MAX_TURNS)]),
+    "-p",
+    buildCommandCodePrompt(prompt, schema),
   ];
 }
 
