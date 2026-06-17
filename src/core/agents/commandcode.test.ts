@@ -439,6 +439,40 @@ describe("CommandCodeAgent", () => {
     await expect(promise).rejects.toThrow("commandcode permission denied");
   });
 
+  it("treats a stray 403 Forbidden from a sub-operation as retryable, not a permanent permission error", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit(
+      "data",
+      Buffer.from(
+        "npm error code E403: 403 Forbidden - @scope/private-registry/pkg",
+      ),
+    );
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.not.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode exited with code 1");
+  });
+
+  it("treats a stray Unauthorized from a git remote as retryable, not a permanent auth error", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit(
+      "data",
+      Buffer.from("remote: Unauthorized access to git@github.com:org/repo.git"),
+    );
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.not.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode exited with code 1");
+  });
+
   it("raises PermanentAgentError when plan usage is exceeded", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

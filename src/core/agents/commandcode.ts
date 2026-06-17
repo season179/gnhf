@@ -201,15 +201,18 @@ function parseCommandCodeOutput(
 
 // Command Code's documented error taxonomy surfaces unauthenticated requests as
 // the "Unauthorized" category (the CLI is not logged in or the session is
-// invalid/revoked), resolved only by re-authenticating. Match the category name
-// alongside the descriptive phrases so an auth failure aborts immediately rather
-// than being retried.
+// invalid/revoked), resolved only by re-authenticating. The descriptive phrases
+// ("not logged in", "authentication required", "invalid api key", "cmd login")
+// are specific enough to match anywhere, but "Unauthorized" is anchored to the
+// start of a Command Code error line so a stray "Unauthorized" surfaced by an
+// unrelated sub-operation (a private npm registry, git remote, or HTTP call the
+// agent ran) does not abort the whole run.
 function isCommandCodeAuthError(stderr: string): boolean {
   return (
     /not logged in/i.test(stderr) ||
     /authentication required/i.test(stderr) ||
     /invalid api key/i.test(stderr) ||
-    /unauthorized/i.test(stderr) ||
+    /^(?:\s*(?:error|command-code|cmd)[:\s]+)?unauthorized\b/im.test(stderr) ||
     /run\s+`?cmd login`?/i.test(stderr)
   );
 }
@@ -218,9 +221,16 @@ function isCommandCodeAuthError(stderr: string): boolean {
 // account is authenticated but lacks permission for the requested action. The
 // documented resolution is an account/role/admin change, never a retry, so treat
 // them as permanent like auth and usage failures instead of burning the retry
-// budget and backoff on a condition a retry cannot clear.
+// budget and backoff on a condition a retry cannot clear. The category words are
+// anchored to the start of a Command Code error line so a 403 "Forbidden" from
+// an unrelated sub-operation is not misclassified as a permanent failure.
 function isCommandCodePermissionError(stderr: string): boolean {
-  return /forbidden/i.test(stderr) || /insufficient permissions/i.test(stderr);
+  return (
+    /^(?:\s*(?:error|command-code|cmd)[:\s]+)?forbidden\b/im.test(stderr) ||
+    /^(?:\s*(?:error|command-code|cmd)[:\s]+)?insufficient permissions\b/im.test(
+      stderr,
+    )
+  );
 }
 
 // Command Code's "Usage exceeded" error fires when the account has consumed its
