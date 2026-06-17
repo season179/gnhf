@@ -12,7 +12,7 @@ import {
   buildCommandCodeArgs,
   isReservedCommandCodeArg,
 } from "./commandcode.js";
-import { buildAgentOutputSchema } from "./types.js";
+import { buildAgentOutputSchema, PermanentAgentError } from "./types.js";
 
 const mockSpawn = vi.mocked(spawn);
 
@@ -172,6 +172,28 @@ describe("CommandCodeAgent", () => {
     expect(onMessage).toHaveBeenCalledWith(content);
   });
 
+  it("recovers JSON when commandcode prepends prose before the final object", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stdout.emit(
+      "data",
+      Buffer.from(
+        'Running checks...\n\n{"success":true,"summary":"ok","key_changes_made":[],"key_learnings":[]}',
+      ),
+    );
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: {
+        success: true,
+        summary: "ok",
+      },
+    });
+  });
+
   it("accepts a fenced JSON final answer", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
@@ -192,6 +214,22 @@ describe("CommandCodeAgent", () => {
         summary: "ok",
       },
     });
+  });
+
+  it("raises PermanentAgentError when authentication fails", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit(
+      "data",
+      Buffer.from("not logged in. Run `cmd login` to authenticate"),
+    );
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode authentication failed");
   });
 
   it("rejects max-turn exits with a clear error", async () => {

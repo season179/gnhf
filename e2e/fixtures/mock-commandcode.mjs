@@ -82,4 +82,5 @@ if (model) {
   output.key_learnings.push(`model override: ${model}`);
 }
 
+process.stdout.write("Analyzing the request and applying changes...\n\n");
 console.log(JSON.stringify(output));
