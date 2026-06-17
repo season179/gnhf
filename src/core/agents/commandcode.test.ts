@@ -114,7 +114,15 @@ describe("isReservedCommandCodeArg", () => {
 
   it("allows model and turn-limit overrides", () => {
     expect(isReservedCommandCodeArg("--model")).toBe(false);
+    expect(isReservedCommandCodeArg("-m")).toBe(false);
     expect(isReservedCommandCodeArg("--max-turns")).toBe(false);
+  });
+
+  it("blocks interactive setup flags that break print-mode automation", () => {
+    expect(isReservedCommandCodeArg("--list-models")).toBe(true);
+    expect(isReservedCommandCodeArg("--list-models=true")).toBe(true);
+    expect(isReservedCommandCodeArg("--ide-setup")).toBe(true);
+    expect(isReservedCommandCodeArg("--ide-setup=true")).toBe(true);
   });
 });
 
