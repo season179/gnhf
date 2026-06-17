@@ -368,6 +368,19 @@ describe("CommandCodeAgent", () => {
     );
   });
 
+  it("treats a non-zero exit whose stderr mentions ENOENT as retryable, not a missing binary", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit("data", Buffer.from("a subtool failed: spawn rg ENOENT"));
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.not.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode exited with code 1");
+  });
+
   it("raises PermanentAgentError when authentication fails", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

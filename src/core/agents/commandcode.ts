@@ -344,23 +344,22 @@ export class CommandCodeAgent implements Agent {
         if (visible) onMessage?.(visible);
       });
 
+      child.on("error", (err) => {
+        if (isMissingCommandCodeBinary(err)) {
+          reject(
+            new PermanentAgentError(
+              "command-code executable was not found - install Command Code or configure agentPathOverride.commandcode",
+              `Failed to spawn commandcode: ${this.bin} not found on PATH`,
+            ),
+          );
+        }
+      });
+
       setupChildProcessHandlers(
         child,
         "commandcode",
         logStream,
-        (err) => {
-          if (isMissingCommandCodeBinary(err)) {
-            const detail = `Failed to spawn commandcode: ${this.bin} not found on PATH`;
-            reject(
-              new PermanentAgentError(
-                "command-code executable was not found - install Command Code or configure agentPathOverride.commandcode",
-                detail,
-              ),
-            );
-            return;
-          }
-          reject(err);
-        },
+        reject,
         () => {
           if (!stdout.trim()) {
             reject(new Error("commandcode returned no output"));
