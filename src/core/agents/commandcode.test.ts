@@ -140,6 +140,7 @@ describe("isReservedCommandCodeArg", () => {
     expect(isReservedCommandCodeArg("--list-models=true")).toBe(true);
     expect(isReservedCommandCodeArg("--ide-setup")).toBe(true);
     expect(isReservedCommandCodeArg("--ide-setup=true")).toBe(true);
+    expect(isReservedCommandCodeArg("--learn-taste")).toBe(true);
   });
 });
 

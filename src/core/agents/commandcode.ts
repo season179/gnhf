@@ -351,6 +351,7 @@ export function isReservedCommandCodeArg(arg: string): boolean {
     arg.startsWith("--list-models=") ||
     arg === "--ide-setup" ||
     arg.startsWith("--ide-setup=") ||
+    arg === "--learn-taste" ||
     COMMANDCODE_SUBCOMMANDS.has(arg)
   );
 }
