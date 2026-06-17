@@ -118,6 +118,23 @@ describe("buildCommandCodeArgs", () => {
       ]),
     );
   });
+
+  it("passes through --add-dir for multi-directory workspaces", () => {
+    const args = buildCommandCodeArgs("test prompt", schema, [
+      "--add-dir",
+      "../packages/lib",
+    ]);
+    expect(args.slice(0, 2)).toEqual(["--add-dir", "../packages/lib"]);
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "--trust",
+        "--skip-onboarding",
+        "--yolo",
+        "--max-turns",
+        "30",
+      ]),
+    );
+  });
 });
 
 describe("isReservedCommandCodeArg", () => {

@@ -401,6 +401,46 @@ describe.concurrent("gnhf e2e cli", () => {
     });
   }, 30_000);
 
+  it("passes --add-dir through agentArgsOverride for multi-directory workspaces", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "agentArgsOverride:",
+          "  commandcode:",
+          "    - --add-dir",
+          "    - ../packages/lib",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        args: string[];
+      };
+      expect(invoke.event).toBe("invoke");
+      expect(invoke.args).toEqual(
+        expect.arrayContaining(["--add-dir", "../packages/lib"]),
+      );
+    });
+  }, 30_000);
+
   it("uses conventional commit subjects when Command Code returns type and scope", async () => {
     await withTemp(async (temp) => {
       const cwd = createRepo(temp);

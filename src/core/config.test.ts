@@ -903,6 +903,18 @@ describe("loadConfig", () => {
     });
   });
 
+  it("allows --add-dir in agentArgsOverride.commandcode", () => {
+    mockReadFileSync.mockReturnValue(
+      'agentArgsOverride:\n  commandcode:\n    - --add-dir\n    - ../packages/lib\n',
+    );
+
+    const config = loadConfig();
+
+    expect(config.agentArgsOverride).toEqual({
+      commandcode: ["--add-dir", "../packages/lib"],
+    });
+  });
+
   it.each([
     "-p",
     "--print",

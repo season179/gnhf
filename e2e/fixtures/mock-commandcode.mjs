@@ -112,5 +112,10 @@ if (model) {
   output.key_learnings.push(`model override: ${model}`);
 }
 
+const addDir = readOption(args, "--add-dir");
+if (addDir) {
+  output.key_learnings.push(`add-dir override: ${addDir}`);
+}
+
 process.stdout.write("Analyzing the request and applying changes...\n\n");
 console.log(JSON.stringify(output));
