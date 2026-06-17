@@ -19,6 +19,10 @@ function readOption(args, name) {
   return index === -1 ? undefined : args[index + 1];
 }
 
+function promptIncludesStopField(prompt) {
+  return prompt.includes("## Stop Condition");
+}
+
 function readPrompt(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -89,6 +93,10 @@ const output = {
   key_changes_made: ["README.md was updated by the mock Command Code agent"],
   key_learnings: ["Mock Command Code exercised the print-mode adapter"],
 };
+
+if (promptIncludesStopField(prompt)) {
+  output.should_fully_stop = true;
+}
 
 const model = readOption(args, "--model") ?? readOption(args, "-m");
 if (model) {

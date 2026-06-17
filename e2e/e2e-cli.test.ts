@@ -361,6 +361,49 @@ describe.concurrent("gnhf e2e cli", () => {
     });
   }, 30_000);
 
+  it("honors --stop-when when Command Code returns should_fully_stop", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        [
+          "ship it",
+          "--stop-when",
+          "task is done",
+          "--max-iterations",
+          "5",
+        ],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+      expect(result.stdout.replace(/\x1b\[[0-9;]*m/g, "")).toContain(
+        "stop condition met",
+      );
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        prompt: string;
+      };
+      expect(invoke.prompt).toContain("should_fully_stop");
+      expect(invoke.prompt).toContain("task is done");
+    });
+  }, 30_000);
+
   it.each([
     ["preset: gnhf", "commitMessage:\n  preset: gnhf\n"],
     ["preset: angular", "commitMessage:\n  preset: angular\n"],

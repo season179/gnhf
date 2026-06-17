@@ -131,6 +131,19 @@ describe("CommandCodeAgent", () => {
     vi.clearAllMocks();
   });
 
+  it("includes should_fully_stop in the prompt contract when the schema requires it", () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent({
+      schema: buildAgentOutputSchema({ includeStopField: true }),
+    });
+
+    agent.run("test prompt", "/work/dir");
+
+    const args = mockSpawn.mock.calls[0]![1] as string[];
+    expect(args.at(-1)).toContain("should_fully_stop");
+  });
+
   it("spawns command-code in print mode with automation defaults", () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
