@@ -4,6 +4,7 @@ import {
   buildAgentOutputSchema,
   validateAgentOutput,
   type Agent,
+  type AgentOutput,
   type AgentOutputSchema,
   type AgentResult,
   type AgentRunOptions,
@@ -14,6 +15,7 @@ import {
   setupAbortHandler,
   setupChildProcessHandlers,
 } from "./stream-utils.js";
+import { parseAgentJson } from "./json-extract.js";
 
 interface PiAgentDeps {
   bin?: string;
@@ -194,6 +196,47 @@ function textByIndexToString(textByIndex: Map<number, string>): string {
     .sort(([a], [b]) => a - b)
     .map(([, text]) => text)
     .join("");
+}
+
+/**
+ * Recover and validate the structured output from Pi's final assistant message.
+ *
+ * Pi is instructed to return JSON only, but the underlying model sometimes
+ * prepends a prose preamble or wraps the JSON in markdown fences, so reuse the
+ * shared `parseAgentJson` recovery the other adapters use:
+ *
+ * - Prefer the rightmost balanced object that validates against the schema (so
+ *   stray JSON in a prose/code-block preamble is skipped).
+ * - Fall back to the rightmost parseable object so a wrong-shape payload still
+ *   reaches validation and surfaces as "Invalid pi output".
+ *
+ * Returns null when no JSON object can be recovered at all (the caller maps that
+ * to "Failed to parse pi output"); throws when an object is found but fails
+ * schema validation (mapped to "Invalid pi output"). Signalling "no JSON" with
+ * null rather than an error type keeps the two cases from depending on which
+ * error class `validateAgentOutput` happens to throw.
+ */
+function parsePiOutput(
+  text: string,
+  schema: AgentOutputSchema,
+): AgentOutput | null {
+  const parsed = parseAgentJson(text, (value) => {
+    try {
+      validateAgentOutput(value, schema);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (parsed !== null) {
+    return validateAgentOutput(parsed, schema);
+  }
+
+  const fallback = parseAgentJson(text);
+  if (fallback === null) {
+    return null;
+  }
+  return validateAgentOutput(fallback, schema);
 }
 
 export class PiAgent implements Agent {
@@ -382,28 +425,24 @@ export class PiAgent implements Agent {
           return;
         }
 
-        let parsed: unknown;
+        let output: AgentOutput | null;
         try {
-          parsed = JSON.parse(finalText);
-        } catch (err) {
-          reject(
-            new Error(
-              `Failed to parse pi output: ${err instanceof Error ? err.message : err}`,
-            ),
-          );
-          return;
-        }
-
-        try {
-          const output = validateAgentOutput(parsed, this.schema);
-          resolve({ output, usage: lastEmittedUsage });
+          output = parsePiOutput(finalText, this.schema);
         } catch (err) {
           reject(
             new Error(
               `Invalid pi output: ${err instanceof Error ? err.message : err}`,
             ),
           );
+          return;
         }
+
+        if (output === null) {
+          reject(new Error("Failed to parse pi output: no JSON object found"));
+          return;
+        }
+
+        resolve({ output, usage: lastEmittedUsage });
       });
     });
   }
