@@ -35,8 +35,23 @@ describe("buildCommandCodeArgs", () => {
     expect(args[1]).toContain("test prompt");
     expect(args[1]).toContain("gnhf final output contract");
     expect(args).toEqual(
-      expect.arrayContaining(["--trust", "--skip-onboarding", "--yolo"]),
+      expect.arrayContaining([
+        "--trust",
+        "--skip-onboarding",
+        "--yolo",
+        "--max-turns",
+        "30",
+      ]),
     );
+  });
+
+  it("suppresses the default max-turns cap when user args specify one", () => {
+    const args = buildCommandCodeArgs("test prompt", schema, [
+      "--max-turns",
+      "50",
+    ]);
+    expect(args).toEqual(expect.arrayContaining(["--max-turns", "50"]));
+    expect(args.filter((arg) => arg === "--max-turns")).toHaveLength(1);
   });
 
   it("passes user args through and suppresses managed defaults", () => {
@@ -99,7 +114,13 @@ describe("CommandCodeAgent", () => {
     expect(args[0]).toBe("-p");
     expect(args[1]).toContain("test prompt");
     expect(args).toEqual(
-      expect.arrayContaining(["--trust", "--skip-onboarding", "--yolo"]),
+      expect.arrayContaining([
+        "--trust",
+        "--skip-onboarding",
+        "--yolo",
+        "--max-turns",
+        "30",
+      ]),
     );
   });
 
@@ -248,7 +269,9 @@ describe("CommandCodeAgent", () => {
   });
 
   it("kills the process group on Unix when aborted", async () => {
-    const processKill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const processKill = vi
+      .spyOn(process, "kill")
+      .mockImplementation(() => true);
     try {
       const proc = createMockProcess();
       Object.defineProperty(proc, "pid", { value: 4321 });

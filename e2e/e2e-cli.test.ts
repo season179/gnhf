@@ -347,6 +347,8 @@ describe.concurrent("gnhf e2e cli", () => {
           "--trust",
           "--skip-onboarding",
           "--yolo",
+          "--max-turns",
+          "30",
         ]),
       );
       expect(invoke.prompt).toContain("ship it");

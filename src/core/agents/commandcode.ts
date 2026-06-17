@@ -17,6 +17,8 @@ import {
   setupChildProcessHandlers,
 } from "./stream-utils.js";
 
+const DEFAULT_MAX_TURNS = 30;
+
 const COMMANDCODE_SUBCOMMANDS = new Set([
   "info",
   "status",
@@ -117,6 +119,12 @@ function userSpecifiedOnboardingMode(userArgs: string[]): boolean {
   return userArgs.some((arg) => arg === "--skip-onboarding");
 }
 
+function userSpecifiedMaxTurns(userArgs: string[]): boolean {
+  return userArgs.some(
+    (arg) => arg === "--max-turns" || arg.startsWith("--max-turns="),
+  );
+}
+
 function buildCommandCodePrompt(
   prompt: string,
   schema: AgentOutputSchema,
@@ -148,6 +156,9 @@ export function buildCommandCodeArgs(
     ...(userSpecifiedTrustMode(userArgs) ? [] : ["--trust"]),
     ...(userSpecifiedOnboardingMode(userArgs) ? [] : ["--skip-onboarding"]),
     ...(userSpecifiedPermissionMode(userArgs) ? [] : ["--yolo"]),
+    ...(userSpecifiedMaxTurns(userArgs)
+      ? []
+      : ["--max-turns", String(DEFAULT_MAX_TURNS)]),
   ];
 }
 
