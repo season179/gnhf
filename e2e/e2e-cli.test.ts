@@ -351,6 +351,11 @@ describe.concurrent("gnhf e2e cli", () => {
           "30",
         ]),
       );
+      const printIndex = invoke.args.indexOf("-p");
+      expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--trust"));
+      expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--skip-onboarding"));
+      expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--yolo"));
+      expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--max-turns"));
       expect(invoke.prompt).toContain("ship it");
       expect(invoke.prompt).toContain("gnhf final output contract");
     });

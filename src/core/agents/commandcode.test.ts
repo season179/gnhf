@@ -70,6 +70,15 @@ describe("buildCommandCodeArgs", () => {
     expect(args.filter((arg) => arg === "--max-turns")).toHaveLength(1);
   });
 
+  it("suppresses the default max-turns cap for --max-turns=N format", () => {
+    const args = buildCommandCodeArgs("test prompt", schema, [
+      "--max-turns=50",
+    ]);
+    expect(args).toEqual(expect.arrayContaining(["--max-turns=50"]));
+    expect(args.filter((arg) => arg.startsWith("--max-turns"))).toHaveLength(1);
+    expect(args).not.toContain("30");
+  });
+
   it("passes user args through and suppresses managed defaults", () => {
     const args = buildCommandCodeArgs("test prompt", schema, [
       "--model",

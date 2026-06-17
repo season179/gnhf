@@ -64,6 +64,19 @@ if (
   process.exit(1);
 }
 
+const printIndex = args.indexOf("-p");
+const effectivePrintIndex =
+  printIndex === -1
+    ? args.findIndex((arg) => arg.startsWith("--print="))
+    : printIndex;
+for (const flag of ["--trust", "-t", "--skip-onboarding", "--yolo", "--max-turns"]) {
+  const flagIndex = args.indexOf(flag);
+  if (flagIndex !== -1 && flagIndex > effectivePrintIndex) {
+    console.error(`mock command-code: ${flag} must precede -p`);
+    process.exit(1);
+  }
+}
+
 appendFileSync(
   join(process.cwd(), "README.md"),
   `- mock commandcode change ${Date.now()}\n`,

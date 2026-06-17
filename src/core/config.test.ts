@@ -909,6 +909,7 @@ describe("loadConfig", () => {
     "--trust",
     "--skip-onboarding",
     "--yolo",
+    "--dangerously-skip-permissions",
     "login",
   ])(
     "throws when agentArgsOverride.commandcode contains reserved flag %s",
