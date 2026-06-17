@@ -384,6 +384,48 @@ describe("CommandCodeAgent", () => {
     await expect(promise).rejects.toThrow("commandcode authentication failed");
   });
 
+  it("raises PermanentAgentError on an Unauthorized error", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit("data", Buffer.from("Error: Unauthorized"));
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode authentication failed");
+  });
+
+  it("raises PermanentAgentError on a Forbidden error", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit("data", Buffer.from("Error: Forbidden"));
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode permission denied");
+  });
+
+  it("raises PermanentAgentError when the account has insufficient permissions", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit(
+      "data",
+      Buffer.from("Insufficient permissions to perform this action"),
+    );
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode permission denied");
+  });
+
   it("raises PermanentAgentError when plan usage is exceeded", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

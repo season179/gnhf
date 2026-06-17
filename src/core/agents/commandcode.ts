@@ -199,13 +199,28 @@ function parseCommandCodeOutput(
   );
 }
 
+// Command Code's documented error taxonomy surfaces unauthenticated requests as
+// the "Unauthorized" category (the CLI is not logged in or the session is
+// invalid/revoked), resolved only by re-authenticating. Match the category name
+// alongside the descriptive phrases so an auth failure aborts immediately rather
+// than being retried.
 function isCommandCodeAuthError(stderr: string): boolean {
   return (
     /not logged in/i.test(stderr) ||
     /authentication required/i.test(stderr) ||
     /invalid api key/i.test(stderr) ||
+    /unauthorized/i.test(stderr) ||
     /run\s+`?cmd login`?/i.test(stderr)
   );
+}
+
+// Command Code's "Forbidden" / "Insufficient permissions" errors fire when the
+// account is authenticated but lacks permission for the requested action. The
+// documented resolution is an account/role/admin change, never a retry, so treat
+// them as permanent like auth and usage failures instead of burning the retry
+// budget and backoff on a condition a retry cannot clear.
+function isCommandCodePermissionError(stderr: string): boolean {
+  return /forbidden/i.test(stderr) || /insufficient permissions/i.test(stderr);
 }
 
 // Command Code's "Usage exceeded" error fires when the account has consumed its
@@ -243,6 +258,12 @@ function createCommandCodeExitError(
   }
   if (isCommandCodeAuthError(stderr)) {
     return new PermanentAgentError("commandcode authentication failed", detail);
+  }
+  if (isCommandCodePermissionError(stderr)) {
+    return new PermanentAgentError(
+      "commandcode permission denied - your account lacks permission for this action; check your account permissions or contact your administrator",
+      detail,
+    );
   }
   return new Error(`commandcode exited with code ${code}: ${stderr.trim()}`);
 }
