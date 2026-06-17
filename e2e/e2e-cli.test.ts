@@ -361,6 +361,45 @@ describe.concurrent("gnhf e2e cli", () => {
     });
   }, 30_000);
 
+  it("uses conventional commit subjects when Command Code returns type and scope", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "commitMessage:",
+          "  preset: conventional",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+      expect(git(["log", "-1", "--pretty=%s"], cwd)).toBe(
+        "feat(commandcode): mock commandcode completed",
+      );
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        prompt: string;
+      };
+      expect(invoke.prompt).toContain("type: Commit type");
+      expect(invoke.prompt).toContain("scope: Optional commit scope");
+    });
+  }, 30_000);
+
   it("honors --stop-when when Command Code returns should_fully_stop", async () => {
     await withTemp(async (temp) => {
       const cwd = createRepo(temp);

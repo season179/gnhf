@@ -23,6 +23,10 @@ function promptIncludesStopField(prompt) {
   return prompt.includes("## Stop Condition");
 }
 
+function promptIncludesConventionalCommit(prompt) {
+  return prompt.includes("type: Commit type");
+}
+
 function readPrompt(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -96,6 +100,11 @@ const output = {
 
 if (promptIncludesStopField(prompt)) {
   output.should_fully_stop = true;
+}
+
+if (promptIncludesConventionalCommit(prompt)) {
+  output.type = "feat";
+  output.scope = "commandcode";
 }
 
 const model = readOption(args, "--model") ?? readOption(args, "-m");

@@ -333,6 +333,44 @@ describe("CommandCodeAgent", () => {
     );
   });
 
+  it("accepts conventional commit fields when the schema requires them", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent({
+      schema: buildAgentOutputSchema({
+        includeStopField: false,
+        commitFields: [
+          { name: "type", allowed: ["feat", "fix"] },
+          { name: "scope" },
+        ],
+      }),
+    });
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stdout.emit(
+      "data",
+      Buffer.from(
+        JSON.stringify({
+          success: true,
+          summary: "ok",
+          key_changes_made: [],
+          key_learnings: [],
+          type: "feat",
+          scope: "commandcode",
+        }),
+      ),
+    );
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: {
+        success: true,
+        type: "feat",
+        scope: "commandcode",
+      },
+    });
+  });
+
   it("requires commit fields when the schema includes them", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
