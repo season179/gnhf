@@ -353,7 +353,9 @@ describe.concurrent("gnhf e2e cli", () => {
       );
       const printIndex = invoke.args.indexOf("-p");
       expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--trust"));
-      expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--skip-onboarding"));
+      expect(printIndex).toBeGreaterThan(
+        invoke.args.indexOf("--skip-onboarding"),
+      );
       expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--yolo"));
       expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--max-turns"));
       expect(invoke.prompt).toContain("ship it");
@@ -495,13 +497,7 @@ describe.concurrent("gnhf e2e cli", () => {
 
       const result = await runCli(
         cwd,
-        [
-          "ship it",
-          "--stop-when",
-          "task is done",
-          "--max-iterations",
-          "5",
-        ],
+        ["ship it", "--stop-when", "task is done", "--max-iterations", "5"],
         env,
       );
 
@@ -520,6 +516,34 @@ describe.concurrent("gnhf e2e cli", () => {
       };
       expect(invoke.prompt).toContain("should_fully_stop");
       expect(invoke.prompt).toContain("task is done");
+    });
+  }, 30_000);
+
+  it("reports estimated token usage with a ~ prefix for Command Code runs", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      // Command Code emits no usage in print mode, so gnhf estimates from text
+      // length and the summary marks both token totals with a `~` prefix.
+      const plain = result.stdout.replace(/\x1b\[[0-9;]*m/g, "");
+      expect(plain).toMatch(/~\S+ in/);
+      expect(plain).toMatch(/~\S+ out/);
     });
   }, 30_000);
 

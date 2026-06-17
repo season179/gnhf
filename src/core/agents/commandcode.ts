@@ -125,6 +125,17 @@ function userSpecifiedMaxTurns(userArgs: string[]): boolean {
   );
 }
 
+// Command Code's `-p` print mode streams prose and the final JSON to stdout
+// but never reports token usage, so gnhf has nothing authoritative to count.
+// Estimate from text length (same character heuristic the ACP adapter uses for
+// adapters that don't emit usage) so the renderer shows non-zero, vaguely
+// proportional numbers and `--max-tokens` can still abort runaway iterations.
+// Estimates are marked so totals render with a `~` prefix.
+function estimateTokens(charCount: number): number {
+  if (charCount <= 0) return 0;
+  return Math.ceil(charCount / 4);
+}
+
 function buildCommandCodePrompt(
   prompt: string,
   schema: AgentOutputSchema,
@@ -219,13 +230,6 @@ function createCommandCodeExitError(
   return new Error(`commandcode exited with code ${code}: ${stderr.trim()}`);
 }
 
-const ZERO_USAGE: TokenUsage = {
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheCreationTokens: 0,
-};
-
 export class CommandCodeAgent implements Agent {
   name = "commandcode";
 
@@ -248,10 +252,24 @@ export class CommandCodeAgent implements Agent {
     cwd: string,
     options?: AgentRunOptions,
   ): Promise<AgentResult> {
-    const { onMessage, signal, logPath } = options ?? {};
+    const { onUsage, onMessage, signal, logPath } = options ?? {};
 
     return new Promise((resolve, reject) => {
       const logStream = logPath ? createWriteStream(logPath) : null;
+
+      // Command Code reports no token usage in print mode, so estimate input
+      // from the embedded prompt and output from captured stdout. Marked
+      // estimated so totals render with a `~` prefix.
+      const estimatedInputTokens = estimateTokens(
+        buildCommandCodePrompt(prompt, this.schema).length,
+      );
+      const computeUsage = (outputChars: number): TokenUsage => ({
+        inputTokens: estimatedInputTokens,
+        outputTokens: estimateTokens(outputChars),
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        estimated: true,
+      });
 
       const child = spawn(
         this.bin,
@@ -275,10 +293,15 @@ export class CommandCodeAgent implements Agent {
 
       let stdout = "";
 
+      // Surface the input estimate immediately so the renderer shows non-zero
+      // numbers as soon as the iteration starts.
+      onUsage?.(computeUsage(0));
+
       child.stdout!.on("data", (data: Buffer) => {
         logStream?.write(data);
         const chunk = data.toString();
         stdout += chunk;
+        onUsage?.(computeUsage(stdout.length));
         const visible = chunk.trim();
         if (visible) onMessage?.(visible);
       });
@@ -308,7 +331,7 @@ export class CommandCodeAgent implements Agent {
 
           try {
             const output = parseCommandCodeOutput(stdout, this.schema);
-            resolve({ output, usage: ZERO_USAGE });
+            resolve({ output, usage: computeUsage(stdout.length) });
           } catch (err) {
             reject(
               new Error(

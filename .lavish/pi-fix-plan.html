@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>gnhf · pi structured-output fix — consensus plan</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --bg-soft: #121821;
+    --panel: #151c26;
+    --panel-2: #1a232f;
+    --border: #243140;
+    --border-soft: #1c2733;
+    --txt: #d6e0ea;
+    --txt-dim: #8a99a8;
+    --txt-faint: #5f6f7e;
+    --accent: #5cc8ff;
+    --green: #54d98c;
+    --amber: #e8b84b;
+    --red: #ff6b6b;
+    --purple: #b78cff;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(92,200,255,0.07), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(183,140,255,0.06), transparent 55%),
+      var(--bg);
+    color: var(--txt);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 40px 22px 100px; }
+  code, .mono { font-family: var(--mono); }
+
+  /* ---------- header ---------- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--txt-faint);
+    margin: 0 0 10px;
+  }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 14px; letter-spacing: -0.01em; }
+  h1 .hl { color: var(--accent); }
+  .sub { color: var(--txt-dim); font-size: 15.5px; max-width: 70ch; margin: 0 0 20px; }
+
+  .banner {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: linear-gradient(90deg, rgba(84,217,140,0.10), rgba(84,217,140,0.02));
+    border: 1px solid rgba(84,217,140,0.35);
+    border-radius: 12px; padding: 14px 16px; margin: 0 0 8px;
+  }
+  .banner .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px var(--green); flex: none; }
+  .banner b { color: var(--green); }
+  .banner .who { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--txt-dim); }
+
+  .pillrow { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 0; }
+  .pill { font-family: var(--mono); font-size: 11.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--txt-dim); background: var(--bg-soft); }
+  .pill.green { color: var(--green); border-color: rgba(84,217,140,0.4); }
+  .pill.amber { color: var(--amber); border-color: rgba(232,184,75,0.4); }
+
+  /* ---------- section ---------- */
+  section { margin-top: 40px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px; border-bottom: 1px solid var(--border-soft); padding-bottom: 10px; }
+  .sec-num { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+  .sec-head h2 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+  .sec-head .note { margin-left: auto; font-size: 12.5px; color: var(--txt-faint); font-family: var(--mono); }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 18px; }
+  .card + .card { margin-top: 14px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 680px) { .grid2 { grid-template-columns: 1fr; } }
+  .min0 { min-width: 0; }
+
+  /* ---------- root-cause timeline ---------- */
+  .timeline { position: relative; margin: 4px 0 0; padding-left: 26px; }
+  .timeline::before { content:""; position:absolute; left: 8px; top: 6px; bottom: 6px; width: 2px; background: linear-gradient(var(--border), transparent); }
+  .step { position: relative; padding: 0 0 16px 0; }
+  .step:last-child { padding-bottom: 0; }
+  .step .mk { position: absolute; left: -26px; top: 1px; width: 18px; height: 18px; border-radius: 50%; background: var(--panel-2); border: 2px solid var(--border); display: grid; place-items: center; font-size: 10px; font-family: var(--mono); color: var(--txt-dim); }
+  .step.good .mk { border-color: var(--green); color: var(--green); }
+  .step.bad .mk { border-color: var(--red); color: var(--red); }
+  .step .t { font-size: 14.5px; }
+  .step .d { font-size: 13px; color: var(--txt-dim); margin-top: 2px; }
+
+  .streambar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); margin: 14px 0 6px; font-family: var(--mono); font-size: 11px; }
+  .streambar > div { display: grid; place-items: center; color: #0b0f14; font-weight: 600; min-width: 0; padding: 0 6px; white-space: nowrap; }
+  .seg-prose { background: #34465a; color: var(--txt-dim); flex: 12; }
+  .seg-json  { background: var(--green); flex: 2.2; }
+  .seg-prose2{ background: #34465a; color: var(--txt-dim); flex: 3; }
+  .caption { font-family: var(--mono); font-size: 11.5px; color: var(--txt-faint); }
+  .caption b { color: var(--green); }
+
+  /* ---------- table ---------- */
+  .tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .tbl th, .tbl td { text-align: left; padding: 11px 12px; vertical-align: top; border-bottom: 1px solid var(--border-soft); }
+  .tbl th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--txt-faint); font-family: var(--mono); }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl td:first-child { color: var(--txt); font-weight: 500; width: 30%; }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 10.5px; padding: 2px 7px; border-radius: 5px; margin-right: 4px; }
+  .tag.c { background: rgba(92,200,255,0.14); color: var(--accent); }
+  .tag.x { background: rgba(183,140,255,0.14); color: var(--purple); }
+  .tag.win { background: rgba(84,217,140,0.16); color: var(--green); }
+
+  /* ---------- code ---------- */
+  pre { margin: 0; background: #0c121a; border: 1px solid var(--border); border-radius: 10px; padding: 14px 14px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; }
+  pre.bad { border-color: rgba(255,107,107,0.4); background: rgba(255,107,107,0.05); }
+  pre.good { border-color: rgba(84,217,140,0.4); background: rgba(84,217,140,0.045); }
+  .code-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+  .code-label.bad { color: var(--red); }
+  .code-label.good { color: var(--green); }
+  .tok-k { color: #ff9ed8; }
+  .tok-f { color: var(--accent); }
+  .tok-s { color: #c3e88d; }
+  .tok-c { color: var(--txt-faint); font-style: italic; }
+  .tok-n { color: var(--amber); }
+
+  ul.clean { margin: 0; padding-left: 18px; }
+  ul.clean li { margin: 7px 0; font-size: 13.5px; }
+  ul.clean li::marker { color: var(--accent); }
+  .k { font-family: var(--mono); color: var(--accent); font-size: 0.92em; background: rgba(92,200,255,0.08); padding: 1px 5px; border-radius: 4px; }
+
+  /* ---------- pass diagram ---------- */
+  .passes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 680px) { .passes { grid-template-columns: 1fr; } }
+  .pass { border: 1px solid var(--border); border-radius: 10px; padding: 14px; background: var(--panel-2); }
+  .pass .ph { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+  .pass .badge { font-family: var(--mono); font-size: 11px; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; flex: none; }
+  .pass.a .badge { background: rgba(84,217,140,0.18); color: var(--green); }
+  .pass.b .badge { background: rgba(232,184,75,0.18); color: var(--amber); }
+  .pass h4 { margin: 0; font-size: 14px; }
+  .pass p { margin: 0; font-size: 12.5px; color: var(--txt-dim); }
+  .arrowline { text-align: center; color: var(--txt-faint); font-family: var(--mono); font-size: 12px; margin: 10px 0; }
+
+  .risk { border-left: 3px solid var(--amber); background: rgba(232,184,75,0.06); border-radius: 0 8px 8px 0; padding: 12px 14px; font-size: 13.5px; }
+  .scope { border-left: 3px solid var(--red); background: rgba(255,107,107,0.05); border-radius: 0 8px 8px 0; padding: 12px 14px; font-size: 13.5px; }
+  .risk b, .scope b { color: var(--txt); }
+
+  .foot { margin-top: 44px; border-top: 1px solid var(--border-soft); padding-top: 18px; color: var(--txt-faint); font-size: 12.5px; font-family: var(--mono); }
+  .next { background: linear-gradient(90deg, rgba(92,200,255,0.10), transparent); border: 1px solid rgba(92,200,255,0.3); border-radius: 12px; padding: 16px 18px; margin-top: 18px; }
+  .next h3 { margin: 0 0 6px; font-size: 15px; color: var(--accent); }
+  .next p { margin: 0; font-size: 13.5px; color: var(--txt-dim); }
+  .files { font-family: var(--mono); font-size: 12.5px; color: var(--txt-dim); }
+  .files b { color: var(--txt); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">gnhf · root-cause fix · debated with codex</p>
+  <h1>Fix the <span class="hl">pi</span> agent's structured-output extraction</h1>
+  <p class="sub">pi emits valid <code>AgentOutput</code> JSON mid-run, then keeps talking — so gnhf parses the trailing prose and discards the result. The fix is entirely on the gnhf side, in one file.</p>
+
+  <div class="banner">
+    <span class="dot"></span>
+    <span><b>Consensus reached.</b> Claude proposed, Codex critiqued over two rounds, both agree on the design below.</span>
+    <span class="who">claude ⇄ codex · agree-with-changes</span>
+  </div>
+  <div class="pillrow">
+    <span class="pill amber">1 file: src/core/agents/pi.ts</span>
+    <span class="pill green">reuses existing json-extract.ts</span>
+    <span class="pill">no prompt change</span>
+    <span class="pill">TDD</span>
+  </div>
+
+  <!-- ROOT CAUSE -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>Why it fails</h2><span class="note">verified from real run logs</span></div>
+    <div class="grid2">
+      <div class="card min0">
+        <div class="timeline">
+          <div class="step good"><span class="mk">✓</span><div class="t">Model emits valid JSON</div><div class="d">A complete, schema-matching <code>{success, summary, key_changes_made, key_learnings}</code> object — mid-conversation.</div></div>
+          <div class="step"><span class="mk">→</span><div class="t">pi keeps going</div><div class="d">Runs one more tool call (background-process check), then writes a prose <code>## Summary</code>.</div></div>
+          <div class="step bad"><span class="mk">!</span><div class="t">gnhf grabs the last message</div><div class="d"><code>latestAssistantMessage</code> = the trailing prose.</div></div>
+          <div class="step bad"><span class="mk">✕</span><div class="t">bare <code>JSON.parse</code> throws</div><div class="d"><code class="mono">Unexpected token 'N', "No backgro"…</code> — the valid object is thrown away.</div></div>
+        </div>
+      </div>
+      <div class="card min0">
+        <div class="code-label">pi's assistant transcript (~13.7 kB)</div>
+        <div class="streambar">
+          <div class="seg-prose">prose · tool narration</div>
+          <div class="seg-json">JSON ✓</div>
+          <div class="seg-prose2">## Summary</div>
+        </div>
+        <p class="caption">The valid object sits at <b>char ~12089</b> of 13731 — not last. Confirmed in <b>3 of 4</b> failing iterations (the 4th was genuinely malformed).</p>
+        <p style="font-size:13px;color:var(--txt-dim);margin:14px 0 0">pi.ts is the <b style="color:var(--red)">only</b> agent not using the shared <code>parseAgentJson</code> recovery helper that cursor / acp / copilot / opencode / rovodev / commandcode all use — and it reads the wrong message besides.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEBATE -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>What we debated &amp; landed on</h2><span class="note">2 rounds</span></div>
+    <div class="card min0" style="overflow-x:auto">
+      <table class="tbl">
+        <thead><tr><th>Question</th><th>Outcome</th></tr></thead>
+        <tbody>
+          <tr><td>Use the shared <code>parseAgentJson</code>?</td><td><span class="tag win">yes</span> But insufficient alone — the JSON isn't in the last message, so we must also scan the right text.</td></tr>
+          <tr><td>One concatenated blob vs. per-turn segments?</td><td><span class="tag win">per-turn</span> Scanned last→first. Preserves event boundaries, smaller blast radius, easier false-positive reasoning.</td></tr>
+          <tr><td>Tie-break vs. a trailing "example" JSON in the summary?</td><td><span class="tag c">claude: 2 passes</span><span class="tag x">codex: endorsed</span> A whole-turn pure-JSON object beats one dug out of prose.</td></tr>
+          <tr><td>The accumulator <span style="color:var(--amber)">(Codex's blocking objection)</span></td><td>Current <code>contentIndex</code> maps are <b>run-global</b>; pi reuses index 0 each turn → collisions. Must key <b>per message</b>, finalize <b>once</b>, join blocks in order.</td></tr>
+          <tr><td>Touch the prompt contract <code>buildPiPrompt</code>?</td><td><span class="tag">no</span> Contract is clear; the model violates final-position semantics. Runtime must tolerate the real stream.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- THE FIX -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>The change</h2><span class="note">src/core/agents/pi.ts</span></div>
+
+    <div class="grid2">
+      <div class="card min0">
+        <p class="code-label bad">● before — discards valid output</p>
+        <pre class="bad"><span class="tok-c">// reads ONLY the last assistant message</span>
+<span class="tok-k">const</span> finalText = textFromAssistantMessage(
+  latestAssistantMessage).trim() || …;
+
+<span class="tok-k">try</span> {
+  parsed = <span class="tok-f">JSON.parse</span>(finalText); <span class="tok-c">// 💥 prose</span>
+} <span class="tok-k">catch</span> (err) {
+  reject(<span class="tok-k">new</span> Error(
+    <span class="tok-s">`Failed to parse pi output: …`</span>));
+}</pre>
+      </div>
+      <div class="card min0">
+        <p class="code-label good">● after — recover over all turns</p>
+        <pre class="good"><span class="tok-k">const</span> parsed = <span class="tok-f">recover</span>(finalizedSegments);
+<span class="tok-k">if</span> (parsed === <span class="tok-n">null</span>) {
+  reject(<span class="tok-k">new</span> Error(
+    <span class="tok-s">`Failed to parse pi output: …`</span>));
+  <span class="tok-c">// genuine failures still surface</span>
+  <span class="tok-k">return</span>;
+}
+<span class="tok-k">const</span> output = validateAgentOutput(parsed, schema);
+resolve({ output, usage: lastEmittedUsage });</pre>
+      </div>
+    </div>
+
+    <div class="card min0" style="margin-top:14px">
+      <p class="code-label good">● the two-pass recovery (pure function — unit-testable)</p>
+      <pre class="good"><span class="tok-k">const</span> accepts = (v) =&gt; { <span class="tok-k">try</span> { validateAgentOutput(v, schema); <span class="tok-k">return</span> <span class="tok-n">true</span>; } <span class="tok-k">catch</span> { <span class="tok-k">return</span> <span class="tok-n">false</span>; } };
+
+<span class="tok-k">function</span> <span class="tok-f">recover</span>(segments) {
+  <span class="tok-c">// Pass A — a whole turn that is pure JSON (after fence-strip)</span>
+  <span class="tok-k">for</span> (<span class="tok-k">let</span> i = segments.length - 1; i &gt;= 0; i--) {
+    <span class="tok-k">try</span> { <span class="tok-k">const</span> p = <span class="tok-f">JSON.parse</span>(stripJsonFences(segments[i])); <span class="tok-k">if</span> (accepts(p)) <span class="tok-k">return</span> p; } <span class="tok-k">catch</span> {}
+  }
+  <span class="tok-c">// Pass B — an object embedded in prose, rightmost-in-turn</span>
+  <span class="tok-k">for</span> (<span class="tok-k">let</span> i = segments.length - 1; i &gt;= 0; i--) {
+    <span class="tok-k">const</span> found = extractLastJsonObject(segments[i], accepts);
+    <span class="tok-k">if</span> (found) <span class="tok-k">return</span> <span class="tok-f">JSON.parse</span>(found);
+  }
+  <span class="tok-k">return</span> <span class="tok-n">null</span>;
+}</pre>
+    </div>
+
+    <div class="passes" style="margin-top:14px">
+      <div class="pass a">
+        <div class="ph"><span class="badge">A</span><h4>Pure-JSON turn</h4></div>
+        <p>Scan turns last→first; a turn whose <em>entire</em> text is the JSON object is the strongest terminal signal. Catches the real bug.</p>
+      </div>
+      <div class="pass b">
+        <div class="ph"><span class="badge">B</span><h4>Embedded object</h4></div>
+        <p>Only if no pure-JSON turn exists: dig the rightmost balanced object out of prose. So a fenced "example" in a summary can never beat a clean final turn.</p>
+      </div>
+    </div>
+
+    <div class="card min0" style="margin-top:14px">
+      <p class="code-label good">● the accumulator — resolves Codex's blocking objection</p>
+      <ul class="clean">
+        <li>Accumulate text <b>per message</b>, keyed by pi's stable message id (<span class="k">messageKey()</span>) — fall back to a <b>monotonic synthetic key</b> allocated on assistant <span class="k">message_start</span>/<span class="k">turn_start</span> (lazily on first <span class="k">text_delta</span>). <b style="color:var(--red)">Never</b> key off <code>contentIndex</code> or role alone.</li>
+        <li><span class="k">text_delta</span> → append to that message's block; <span class="k">text_end</span> → set the block.</li>
+        <li>On assistant <span class="k">message_end</span>/<span class="k">turn_end</span> → join blocks in <code>contentIndex</code> order, push <b>once</b> to <code>finalizedSegments</code> (dedupe via a <code>finalizedKeys</code> Set).</li>
+        <li><b>Close-time guard</b> (Codex's add): finalize any still-active accumulator even if no <span class="k">text_end</span>/<span class="k">message_end</span> ever arrived. Don't depend on <code>latestAssistantMessage</code> text existing.</li>
+        <li>Keep the existing <span class="k">agent_end</span> messages-array fallback. Never include tool output.</li>
+      </ul>
+      <p style="font-size:12.5px;color:var(--txt-faint);margin:12px 0 0">Untouched: <code>stopReason === "error"/"aborted"</code> handling · all <code>TokenUsage</code> accumulation · <code>buildPiPrompt</code>.</p>
+    </div>
+  </section>
+
+  <!-- TESTS -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Tests — TDD, red first</h2></div>
+    <div class="grid2">
+      <div class="card min0">
+        <p class="code-label good">recover(segments) — pure fn</p>
+        <ul class="clean">
+          <li>prose + JSON + prose</li>
+          <li>pure-JSON turn</li>
+          <li>JSON then later prose turns <span style="color:var(--green)">(the real bug)</span></li>
+          <li>trailing fenced "example" → Pass A still picks the real earlier turn</li>
+          <li>no JSON at all → <code>null</code></li>
+          <li>multiple valid turns → most-recent wins</li>
+        </ul>
+      </div>
+      <div class="card min0">
+        <p class="code-label good">accumulator — synthetic events</p>
+        <ul class="clean">
+          <li><code>contentIndex 0</code> reused across turns → no collision</li>
+          <li>duplicate <code>text_end</code> + <code>message_end</code> → finalized once</li>
+          <li><code>text_delta</code> with no end event → finalized at close</li>
+          <li>JSON in block 1 + prose in block 2 → ordered join</li>
+        </ul>
+        <p style="font-size:12px;color:var(--txt-faint);margin:12px 0 0">e2e only if a <code>pi</code> mock is cheap (none today) — not blocking.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCOPE / RISK -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Out of scope &amp; residual risk</h2></div>
+    <div class="scope" style="margin-bottom:12px">
+      <b>Not</b> touching the prompt, and <b>not</b> adding an "after the last tool call" heuristic — Codex noted that would <em>break</em> the real case, since the valid JSON legitimately precedes a later tool call.
+    </div>
+    <div class="risk">
+      <b>Residual risk (low, accepted):</b> if a trailing prose turn were <em>entirely</em> a valid schema object on its own, Pass A could pick it over an earlier real one. The two-pass design already eliminates the realistic case (a fenced example embedded in prose).
+    </div>
+  </section>
+
+  <!-- NEXT -->
+  <div class="next">
+    <h3>Proposed next step</h3>
+    <p>Implement TDD: write the failing <code>recover</code> + accumulator tests, make the <code>pi.ts</code> change, then <code>pnpm test</code> + typecheck + lint to confirm green. Approve and I'll proceed.</p>
+  </div>
+
+  <div class="foot">
+    design source: project-matched (terminal / devtools aesthetic for a CLI tool), hand-written portable CSS — no design system or CDN to mirror.<br/>
+    annotate any element or select text to leave feedback; queue prompts to revise the plan.
+  </div>
+
+</div>
+</body>
+</html>

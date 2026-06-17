@@ -905,7 +905,7 @@ describe("loadConfig", () => {
 
   it("allows --add-dir in agentArgsOverride.commandcode", () => {
     mockReadFileSync.mockReturnValue(
-      'agentArgsOverride:\n  commandcode:\n    - --add-dir\n    - ../packages/lib\n',
+      "agentArgsOverride:\n  commandcode:\n    - --add-dir\n    - ../packages/lib\n",
     );
 
     const config = loadConfig();

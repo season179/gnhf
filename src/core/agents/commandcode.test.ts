@@ -260,21 +260,51 @@ describe("CommandCodeAgent", () => {
     proc.stdout.emit("data", Buffer.from(content));
     proc.emit("close", 0);
 
-    await expect(promise).resolves.toEqual({
-      output: {
-        success: true,
-        summary: "ok",
-        key_changes_made: [],
-        key_learnings: [],
-      },
-      usage: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheCreationTokens: 0,
-      },
+    const result = await promise;
+    expect(result.output).toEqual({
+      success: true,
+      summary: "ok",
+      key_changes_made: [],
+      key_learnings: [],
     });
+    // Command Code reports no usage in print mode, so gnhf estimates from text
+    // length and marks the numbers as estimated for the `~` renderer prefix.
+    expect(result.usage.estimated).toBe(true);
+    expect(result.usage.inputTokens).toBeGreaterThan(0);
+    expect(result.usage.outputTokens).toBe(Math.ceil(content.length / 4));
+    expect(result.usage.cacheReadTokens).toBe(0);
+    expect(result.usage.cacheCreationTokens).toBe(0);
     expect(onMessage).toHaveBeenCalledWith(content);
+  });
+
+  it("reports an estimated input-token usage before any output arrives", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const onUsage = vi.fn();
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir", { onUsage });
+
+    // The first onUsage call happens synchronously at run start so the renderer
+    // shows non-zero numbers immediately, with output still at zero.
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    const initial = onUsage.mock.calls[0]![0];
+    expect(initial.estimated).toBe(true);
+    expect(initial.inputTokens).toBeGreaterThan(0);
+    expect(initial.outputTokens).toBe(0);
+
+    proc.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"success":true,"summary":"ok","key_changes_made":[],"key_learnings":[]}',
+      ),
+    );
+    proc.emit("close", 0);
+    await promise;
+
+    // A later onUsage call reflects the streamed output growing.
+    const last = onUsage.mock.calls.at(-1)![0];
+    expect(last.outputTokens).toBeGreaterThan(0);
   });
 
   it("recovers JSON when commandcode prepends prose before the final object", async () => {
