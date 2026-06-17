@@ -906,16 +906,21 @@ describe("loadConfig", () => {
   it.each([
     "-p",
     "--print",
+    "-t",
     "--trust",
     "--skip-onboarding",
     "--yolo",
     "--dangerously-skip-permissions",
+    "-r",
     "--resume",
     "--resume=chat-id",
+    "-c",
     "--continue",
     "--list-models",
     "--ide-setup",
     "login",
+    "logout",
+    "status",
   ])(
     "throws when agentArgsOverride.commandcode contains reserved flag %s",
     (flag) => {

@@ -101,6 +101,23 @@ describe("buildCommandCodeArgs", () => {
     expect(args.at(-2)).toBe("-p");
     expect(args.at(-1)).toContain("test prompt");
   });
+
+  it("passes through the -m model short flag", () => {
+    const args = buildCommandCodeArgs("test prompt", schema, [
+      "-m",
+      "claude-sonnet-4-6",
+    ]);
+    expect(args.slice(0, 2)).toEqual(["-m", "claude-sonnet-4-6"]);
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "--trust",
+        "--skip-onboarding",
+        "--yolo",
+        "--max-turns",
+        "30",
+      ]),
+    );
+  });
 });
 
 describe("isReservedCommandCodeArg", () => {
