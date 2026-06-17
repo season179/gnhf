@@ -1,3 +1,5 @@
 node_modules/
 dist/
+.pnpm-store/
+codedb.snapshot
 .gnhf/runs/

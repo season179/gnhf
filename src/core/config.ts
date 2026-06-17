@@ -12,6 +12,7 @@ export const AGENT_NAMES = [
   "rovodev",
   "opencode",
   "copilot",
+  "cursor",
   "pi",
 ] as const;
 
@@ -91,6 +92,265 @@ const DEFAULT_CONFIG: Config = {
 };
 
 const ACP_TARGET_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const CURSOR_RESERVED_SUBCOMMANDS = new Set([
+  "about",
+  "acp",
+  "agent",
+  "create-chat",
+  "generate-rule",
+  "help",
+  "install-shell-integration",
+  "login",
+  "logout",
+  "ls",
+  "mcp",
+  "models",
+  "resume",
+  "rule",
+  "status",
+  "tunnel",
+  "uninstall-shell-integration",
+  "update",
+  "whoami",
+  "worker",
+]);
+const CURSOR_VALUE_ARGS = new Set([
+  "--endpoint",
+  "-e",
+  "--header",
+  "-H",
+  "--model",
+  "--mode",
+  "--plugin-dir",
+  "--sandbox",
+]);
+const CURSOR_INLINE_VALUE_ARGS = [
+  "--endpoint=",
+  "--header=",
+  "--model=",
+  "--mode=",
+  "--plugin-dir=",
+  "--sandbox=",
+] as const;
+const CURSOR_RESERVED_SHORT_ARG_PREFIXES = ["-v", "-h", "-p", "-w"] as const;
+const CURSOR_WORKER_ONLY_ARGS = [
+  "--auth-token-file",
+  "--data-dir",
+  "--idle-release-timeout",
+  "--label",
+  "--labels-file",
+  "--management-addr",
+  "--name",
+  "--pool",
+  "--pool-name",
+  "--single-use",
+  "--worker-dir",
+  "--debug",
+  "--json",
+  "--verbose",
+] as const;
+const CURSOR_EDITOR_ONLY_ARGS = [
+  "--add",
+  "--add-mcp",
+  "--category",
+  "--chat",
+  "--classic",
+  "--diff",
+  "--disable-chromium-sandbox",
+  "--disable-extension",
+  "--disable-extensions",
+  "--disable-gpu",
+  "--disable-lcd-text",
+  "--enable-proposed-api",
+  "--extensions-dir",
+  "--glass",
+  "--goto",
+  "--inspect-brk-extensions",
+  "--inspect-extensions",
+  "--install-extension",
+  "--list-extensions",
+  "--locate-shell-integration-path",
+  "--locale",
+  "--log",
+  "--merge",
+  "--mcp-workspace",
+  "--new-window",
+  "--pre-release",
+  "--prof-startup",
+  "--profile",
+  "--remove",
+  "--reuse-window",
+  "--show-versions",
+  "--status",
+  "--suppress-popups-on-startup",
+  "--sync",
+  "--telemetry",
+  "--uninstall-extension",
+  "--update-extensions",
+  "--user-data-dir",
+  "--wait",
+  "--web-worker-exthost",
+] as const;
+const CURSOR_BOOLEAN_ARGS = [
+  "--approve-mcps",
+  "--force",
+  "--insecure",
+  "--plan",
+  "--yolo",
+] as const;
+const CURSOR_MANAGED_NEGATED_ARGS = new Set([
+  "--no-api-key",
+  "--no-auth-token",
+  "--no-auth-token-file",
+  "--no-continue",
+  "--no-data-dir",
+  "--no-debug",
+  "--no-format",
+  "--no-idle-release-timeout",
+  "--no-json",
+  "--no-label",
+  "--no-labels-file",
+  "--no-list-models",
+  "--no-management-addr",
+  "--no-name",
+  "--no-output-format",
+  "--no-pool",
+  "--no-pool-name",
+  "--no-print",
+  "--no-resume",
+  "--no-single-use",
+  "--no-skip-worktree-setup",
+  "--no-stream-partial-output",
+  "--no-trust",
+  "--no-verbose",
+  "--no-worker-dir",
+  "--no-workspace",
+  "--no-worktree",
+  "--no-worktree-base",
+]);
+const CURSOR_VALUE_ARG_CHOICES: Record<string, readonly string[]> = {
+  "--mode": ["plan", "ask"],
+  "--sandbox": ["enabled", "disabled"],
+};
+const CURSOR_EDITOR_ONLY_SHORT_ARG_PREFIXES = [
+  "-a",
+  "-d",
+  "-g",
+  "-m",
+  "-n",
+  "-r",
+  "-s",
+] as const;
+
+function isCursorReservedShortArg(arg: string): boolean {
+  return CURSOR_RESERVED_SHORT_ARG_PREFIXES.some(
+    (prefix) => arg.startsWith(prefix) && !arg.startsWith("--"),
+  );
+}
+
+function isCursorMalformedShortForceArg(arg: string): boolean {
+  return arg.startsWith("-f") && arg !== "-f" && !arg.startsWith("--");
+}
+
+function isCursorMalformedShortInsecureArg(arg: string): boolean {
+  return arg.startsWith("-k") && arg !== "-k" && !arg.startsWith("--");
+}
+
+function isCursorAttachedShortEndpointArg(arg: string): boolean {
+  return arg.startsWith("-e") && arg !== "-e" && !arg.startsWith("--");
+}
+
+function isCursorBooleanArgWithValue(arg: string): boolean {
+  return CURSOR_BOOLEAN_ARGS.some((flag) => arg.startsWith(`${flag}=`));
+}
+
+function isCursorNegatedBooleanArg(arg: string): boolean {
+  return CURSOR_BOOLEAN_ARGS.some(
+    (flag) =>
+      arg === `--no-${flag.slice("--".length)}` ||
+      arg.startsWith(`--no-${flag.slice("--".length)}=`),
+  );
+}
+
+function isCursorNegatedValueArg(arg: string): boolean {
+  return [...CURSOR_VALUE_ARGS].some((flag) => {
+    if (!flag.startsWith("--")) return false;
+    const negated = `--no-${flag.slice("--".length)}`;
+    return arg === negated || arg.startsWith(`${negated}=`);
+  });
+}
+
+function isCursorAttachedShortHeaderArg(arg: string): boolean {
+  return arg.startsWith("-H") && arg !== "-H" && !arg.startsWith("--");
+}
+
+function isCursorManagedNegatedArg(arg: string): boolean {
+  for (const flag of CURSOR_MANAGED_NEGATED_ARGS) {
+    if (arg === flag || arg.startsWith(`${flag}=`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isCursorWorkerOnlyArg(arg: string): boolean {
+  return CURSOR_WORKER_ONLY_ARGS.some(
+    (flag) => arg === flag || arg.startsWith(`${flag}=`),
+  );
+}
+
+function isCursorEditorOnlyArg(arg: string): boolean {
+  return (
+    CURSOR_EDITOR_ONLY_ARGS.some((flag) => {
+      const negated = `--no-${flag.slice("--".length)}`;
+      return (
+        arg === flag ||
+        arg.startsWith(`${flag}=`) ||
+        arg === negated ||
+        arg.startsWith(`${negated}=`)
+      );
+    }) ||
+    CURSOR_EDITOR_ONLY_SHORT_ARG_PREFIXES.some(
+      (prefix) => arg.startsWith(prefix) && !arg.startsWith("--"),
+    )
+  );
+}
+
+function validateCursorValueChoice(
+  flag: string,
+  value: string,
+  label: string,
+  index: number,
+): void {
+  const choices = CURSOR_VALUE_ARG_CHOICES[flag];
+  if (choices === undefined || choices.includes(value)) return;
+
+  throw new InvalidConfigError(
+    `Invalid config value for ${label}[${index}]: "${flag}" must be one of ${choices.map((choice) => `"${choice}"`).join(", ")}, got "${value}"`,
+  );
+}
+
+function validateCursorHeaderValue(
+  flag: string,
+  value: string,
+  label: string,
+  index: number,
+): void {
+  if (flag !== "--header" && flag !== "-H") return;
+
+  const colonIndex = value.indexOf(":");
+  const headerName = value.slice(0, colonIndex);
+  if (
+    colonIndex <= 0 ||
+    headerName === "" ||
+    !/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(headerName) ||
+    value.slice(colonIndex + 1).trim() === ""
+  ) {
+    throw new InvalidConfigError(
+      `Invalid config value for ${label}[${index}]: "${flag}" value must use "Name: Value" header format with a valid header name`,
+    );
+  }
+}
 
 function formatAgentNameList(): string {
   const quoted = AGENT_NAMES.map((name) => `"${name}"`);
@@ -163,6 +423,47 @@ function isReservedAgentArg(agent: AgentName, arg: string): boolean {
         arg.startsWith("--share=") ||
         arg === "--share-gist"
       );
+    case "cursor":
+      return (
+        CURSOR_RESERVED_SUBCOMMANDS.has(arg) ||
+        isCursorReservedShortArg(arg) ||
+        arg === "--version" ||
+        arg.startsWith("--version=") ||
+        arg === "--help" ||
+        arg.startsWith("--help=") ||
+        arg === "--" ||
+        arg === "--print" ||
+        arg.startsWith("--print=") ||
+        arg === "--output-format" ||
+        arg.startsWith("--output-format=") ||
+        arg === "--stream-partial-output" ||
+        arg.startsWith("--stream-partial-output=") ||
+        arg === "--trust" ||
+        arg.startsWith("--trust=") ||
+        arg === "--api-key" ||
+        arg.startsWith("--api-key=") ||
+        arg === "--auth-token" ||
+        arg.startsWith("--auth-token=") ||
+        arg === "--workspace" ||
+        arg.startsWith("--workspace=") ||
+        arg === "--worktree" ||
+        arg.startsWith("--worktree=") ||
+        arg === "--worktree-base" ||
+        arg.startsWith("--worktree-base=") ||
+        arg === "--skip-worktree-setup" ||
+        arg.startsWith("--skip-worktree-setup=") ||
+        isCursorWorkerOnlyArg(arg) ||
+        isCursorEditorOnlyArg(arg) ||
+        arg === "--resume" ||
+        arg.startsWith("--resume=") ||
+        arg === "--continue" ||
+        arg.startsWith("--continue=") ||
+        arg === "--list-models" ||
+        arg.startsWith("--list-models=") ||
+        arg === "--format" ||
+        arg.startsWith("--format=") ||
+        isCursorManagedNegatedArg(arg)
+      );
     case "pi":
       return (
         arg === "--mode" ||
@@ -191,6 +492,109 @@ function isReservedAgentArg(agent: AgentName, arg: string): boolean {
         arg === "--api-key" ||
         arg.startsWith("--api-key=")
       );
+  }
+}
+
+function validateCursorArgValues(args: string[], label: string): void {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (isCursorMalformedShortForceArg(arg)) {
+      throw new InvalidConfigError(
+        `Invalid config value for ${label}[${index}]: "${arg}" is not supported by Cursor; use the bare "-f" flag`,
+      );
+    }
+    if (isCursorMalformedShortInsecureArg(arg)) {
+      throw new InvalidConfigError(
+        `Invalid config value for ${label}[${index}]: "${arg}" is not supported by Cursor; use the bare "-k" flag`,
+      );
+    }
+    if (isCursorBooleanArgWithValue(arg)) {
+      throw new InvalidConfigError(
+        `Invalid config value for ${label}[${index}]: "${arg}" is not supported by Cursor; use the bare flag without a value`,
+      );
+    }
+    if (isCursorNegatedBooleanArg(arg)) {
+      throw new InvalidConfigError(
+        `Invalid config value for ${label}[${index}]: "${arg}" is not supported by Cursor; use the bare positive flag form`,
+      );
+    }
+    if (isCursorNegatedValueArg(arg)) {
+      throw new InvalidConfigError(
+        `Invalid config value for ${label}[${index}]: "${arg}" is not supported by Cursor; use the positive value flag form`,
+      );
+    }
+    if (isCursorAttachedShortHeaderArg(arg)) {
+      const value = arg.startsWith("-H=") ? arg.slice(3) : arg.slice(2);
+      validateCursorHeaderValue("-H", value, label, index);
+      continue;
+    }
+    if (isCursorAttachedShortEndpointArg(arg)) {
+      const value = arg.startsWith("-e=") ? arg.slice(3) : arg.slice(2);
+      if (value === "") {
+        throw new InvalidConfigError(
+          `Invalid config value for ${label}[${index}]: "${arg}" requires a non-empty value`,
+        );
+      }
+      continue;
+    }
+
+    const inlinePrefix = CURSOR_INLINE_VALUE_ARGS.find((prefix) =>
+      arg.startsWith(prefix),
+    );
+    if (inlinePrefix !== undefined && arg.slice(inlinePrefix.length) === "") {
+      throw new InvalidConfigError(
+        `Invalid config value for ${label}[${index}]: "${arg}" requires a non-empty value`,
+      );
+    }
+    if (inlinePrefix !== undefined) {
+      validateCursorHeaderValue(
+        inlinePrefix.slice(0, -1),
+        arg.slice(inlinePrefix.length),
+        label,
+        index,
+      );
+      validateCursorValueChoice(
+        inlinePrefix.slice(0, -1),
+        arg.slice(inlinePrefix.length),
+        label,
+        index,
+      );
+    }
+
+    if (isReservedAgentArg("cursor", arg)) {
+      throw new InvalidConfigError(
+        `Invalid config value for ${label}[${index}]: "${arg}" is managed by gnhf and cannot be overridden`,
+      );
+    }
+
+    if (!CURSOR_VALUE_ARGS.has(arg)) {
+      if (!arg.startsWith("-")) {
+        throw new InvalidConfigError(
+          `Invalid config value for ${label}[${index}]: "${arg}" would be treated as Cursor prompt text; gnhf supplies the prompt`,
+        );
+      }
+      continue;
+    }
+
+    const next = args[index + 1];
+    if (next === undefined || next.startsWith("-")) {
+      throw new InvalidConfigError(
+        `Invalid config value for ${label}[${index}]: "${arg}" requires a following value`,
+      );
+    }
+    validateCursorHeaderValue(arg, next, label, index);
+    validateCursorValueChoice(arg, next, label, index);
+    index += 1;
+  }
+}
+
+function validateAgentExtraArgs(
+  agent: AgentName,
+  args: string[],
+  label: string,
+): void {
+  if (agent === "cursor") {
+    validateCursorArgValues(args, label);
   }
 }
 
@@ -270,7 +674,7 @@ function normalizeAgentExtraArgs(
     );
   }
 
-  return value.map((entry, index) => {
+  const args = value.map((entry, index) => {
     if (typeof entry !== "string") {
       throw new InvalidConfigError(
         `Invalid config value for ${label}[${index}]: expected a string`,
@@ -284,14 +688,21 @@ function normalizeAgentExtraArgs(
       );
     }
 
-    if (isReservedAgentArg(agent, trimmed)) {
-      throw new InvalidConfigError(
-        `Invalid config value for ${label}[${index}]: "${trimmed}" is managed by gnhf and cannot be overridden`,
-      );
-    }
-
     return trimmed;
   });
+
+  if (agent !== "cursor") {
+    args.forEach((arg, index) => {
+      if (isReservedAgentArg(agent, arg)) {
+        throw new InvalidConfigError(
+          `Invalid config value for ${label}[${index}]: "${arg}" is managed by gnhf and cannot be overridden`,
+        );
+      }
+    });
+  }
+
+  validateAgentExtraArgs(agent, args, label);
+  return args;
 }
 
 function normalizeAgentArgsOverride(
@@ -523,6 +934,7 @@ function serializeConfig(config: Config): string {
     "#   claude: /path/to/custom-claude",
     "#   codex: /path/to/custom-codex",
     "#   copilot: /path/to/custom-copilot",
+    "#   cursor: /path/to/custom-cursor",
     "#   pi: /path/to/custom-pi",
     "",
     "# Native agent CLI arg overrides (optional)",
@@ -537,6 +949,9 @@ function serializeConfig(config: Config): string {
     "#   copilot:",
     "#     - --model",
     "#     - gpt-5.4",
+    "#   cursor:",
+    "#     - --model",
+    "#     - gpt-5",
     "#   pi:",
     "#     - --provider",
     "#     - openai-codex",

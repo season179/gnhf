@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
+import { PermanentAgentError } from "./types.js";
 import type {
   Agent,
   AgentResult,
@@ -27,7 +28,22 @@ interface CodexTurnCompleted {
   };
 }
 
-type CodexEvent = CodexItemCompleted | CodexTurnCompleted | { type: string };
+interface CodexErrorEvent {
+  type: "error";
+  message: string;
+}
+
+interface CodexTurnFailed {
+  type: "turn.failed";
+  error: { message?: string };
+}
+
+type CodexEvent =
+  | CodexItemCompleted
+  | CodexTurnCompleted
+  | CodexErrorEvent
+  | CodexTurnFailed
+  | { type: string };
 
 interface CodexAgentDeps {
   bin?: string;
@@ -117,6 +133,31 @@ function buildCodexArgs(
   ];
 }
 
+function isPermanentCodexError(message: string): boolean {
+  return /usage limit|purchase more credits/i.test(message);
+}
+
+function buildCodexExitError(
+  code: number | null,
+  stderr: string,
+  structuredError: string | null,
+): Error {
+  const trimmedStructuredError = structuredError?.trim() ?? "";
+  const trimmedStderr = stderr.trim();
+  const primaryMessage = trimmedStructuredError || trimmedStderr;
+  const detail =
+    trimmedStructuredError && trimmedStderr
+      ? `codex exited with code ${code}: ${trimmedStructuredError}\n\nstderr: ${trimmedStderr}`
+      : `codex exited with code ${code}: ${primaryMessage}`;
+
+  return isPermanentCodexError(primaryMessage)
+    ? new PermanentAgentError(
+        "codex usage limit reached - see gnhf.log",
+        detail,
+      )
+    : new Error(detail);
+}
+
 export class CodexAgent implements Agent {
   name = "codex";
 
@@ -163,6 +204,7 @@ export class CodexAgent implements Agent {
       }
 
       let lastAgentMessage: string | null = null;
+      let lastStructuredError: string | null = null;
       const cumulative: TokenUsage = {
         inputTokens: 0,
         outputTokens: 0,
@@ -187,25 +229,48 @@ export class CodexAgent implements Agent {
           cumulative.cacheReadTokens += u.cached_input_tokens ?? 0;
           onUsage?.({ ...cumulative });
         }
-      });
 
-      setupChildProcessHandlers(child, "codex", logStream, reject, () => {
-        if (!lastAgentMessage) {
-          reject(new Error("codex returned no agent message"));
-          return;
+        if (
+          event.type === "error" &&
+          "message" in event &&
+          typeof (event as CodexErrorEvent).message === "string"
+        ) {
+          lastStructuredError = (event as CodexErrorEvent).message;
         }
 
-        try {
-          const output = JSON.parse(lastAgentMessage) as AgentOutput;
-          resolve({ output, usage: cumulative });
-        } catch (err) {
-          reject(
-            new Error(
-              `Failed to parse codex output: ${err instanceof Error ? err.message : err}`,
-            ),
-          );
+        if (event.type === "turn.failed" && "error" in event) {
+          const message = (event as CodexTurnFailed).error.message;
+          if (typeof message === "string") {
+            lastStructuredError = message;
+          }
         }
       });
+
+      setupChildProcessHandlers(
+        child,
+        "codex",
+        logStream,
+        reject,
+        () => {
+          if (!lastAgentMessage) {
+            reject(new Error("codex returned no agent message"));
+            return;
+          }
+
+          try {
+            const output = JSON.parse(lastAgentMessage) as AgentOutput;
+            resolve({ output, usage: cumulative });
+          } catch (err) {
+            reject(
+              new Error(
+                `Failed to parse codex output: ${err instanceof Error ? err.message : err}`,
+              ),
+            );
+          }
+        },
+        (code, stderr) =>
+          buildCodexExitError(code, stderr, lastStructuredError),
+      );
     });
   }
 }
