@@ -473,6 +473,38 @@ describe("CommandCodeAgent", () => {
     await expect(promise).rejects.toThrow("commandcode exited with code 1");
   });
 
+  it("treats a stray 'not logged in' from a registry as retryable, not a permanent auth error", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit(
+      "data",
+      Buffer.from("npm error: not logged in to registry"),
+    );
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.not.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode exited with code 1");
+  });
+
+  it("treats a stray 'authentication required' from a git remote as retryable, not a permanent auth error", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new CommandCodeAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    proc.stderr.emit(
+      "data",
+      Buffer.from("remote: authentication required for github.com"),
+    );
+    proc.emit("close", 1);
+
+    await expect(promise).rejects.not.toBeInstanceOf(PermanentAgentError);
+    await expect(promise).rejects.toThrow("commandcode exited with code 1");
+  });
+
   it("raises PermanentAgentError when plan usage is exceeded", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

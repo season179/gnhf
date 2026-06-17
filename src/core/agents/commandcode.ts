@@ -201,16 +201,20 @@ function parseCommandCodeOutput(
 
 // Command Code's documented error taxonomy surfaces unauthenticated requests as
 // the "Unauthorized" category (the CLI is not logged in or the session is
-// invalid/revoked), resolved only by re-authenticating. The descriptive phrases
-// ("not logged in", "authentication required", "invalid api key", "cmd login")
-// are specific enough to match anywhere, but "Unauthorized" is anchored to the
-// start of a Command Code error line so a stray "Unauthorized" surfaced by an
-// unrelated sub-operation (a private npm registry, git remote, or HTTP call the
-// agent ran) does not abort the whole run.
+// invalid/revoked), resolved only by re-authenticating. "Unauthorized", "not
+// logged in", and "authentication required" are generic enough phrases that
+// unrelated tooling (a private npm registry, git remote, or HTTP call the agent
+// ran) genuinely emits them in stderr, so all three are anchored to the start
+// of a Command Code error line (optionally after an "error"/"command-code"/
+// "cmd" label) to avoid false-firing on a stray sub-operation message and
+// aborting the whole run. Only "invalid api key" and "cmd login" are specific
+// enough to Command Code to match anywhere.
 function isCommandCodeAuthError(stderr: string): boolean {
   return (
-    /not logged in/i.test(stderr) ||
-    /authentication required/i.test(stderr) ||
+    /^(?:\s*(?:error|command-code|cmd)[:\s]+)?not logged in\b/im.test(stderr) ||
+    /^(?:\s*(?:error|command-code|cmd)[:\s]+)?authentication required\b/im.test(
+      stderr,
+    ) ||
     /invalid api key/i.test(stderr) ||
     /^(?:\s*(?:error|command-code|cmd)[:\s]+)?unauthorized\b/im.test(stderr) ||
     /run\s+`?cmd login`?/i.test(stderr)
