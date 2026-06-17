@@ -891,6 +891,38 @@ describe("loadConfig", () => {
     });
   });
 
+  it("allows safe agentArgsOverride.commandcode flags", () => {
+    mockReadFileSync.mockReturnValue(
+      'agentArgsOverride:\n  commandcode:\n    - --model\n    - claude-sonnet-4-6\n    - --max-turns\n    - "30"\n',
+    );
+
+    const config = loadConfig();
+
+    expect(config.agentArgsOverride).toEqual({
+      commandcode: ["--model", "claude-sonnet-4-6", "--max-turns", "30"],
+    });
+  });
+
+  it.each([
+    "-p",
+    "--print",
+    "--trust",
+    "--skip-onboarding",
+    "--yolo",
+    "login",
+  ])(
+    "throws when agentArgsOverride.commandcode contains reserved flag %s",
+    (flag) => {
+      mockReadFileSync.mockReturnValue(
+        `agentArgsOverride:\n  commandcode:\n    - ${flag}\n`,
+      );
+
+      expect(() => loadConfig()).toThrow(
+        /agentArgsOverride\.commandcode\[0\].*managed by gnhf/,
+      );
+    },
+  );
+
   it.each([
     "--mode",
     "--mode=json",

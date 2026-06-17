@@ -143,6 +143,27 @@ function createMockCursorEnv(
   };
 }
 
+function createMockCommandCodeEnv(
+  temp: TempCleanup,
+  configYaml: string,
+): { env: NodeJS.ProcessEnv; mockLogPath: string } {
+  const home = temp.mkdir("home");
+  mkdirSync(join(home, ".gnhf"), { recursive: true });
+  writeFileSync(join(home, ".gnhf", "config.yml"), configYaml, "utf-8");
+  const logDir = temp.mkdir("logs");
+  const mockLogPath = join(logDir, "mock-commandcode.jsonl");
+  return {
+    env: {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      PATH: `${fixtureBinDir}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
+      GNHF_MOCK_COMMANDCODE_LOG_PATH: mockLogPath,
+    },
+    mockLogPath,
+  };
+}
+
 async function withTemp<T>(fn: (temp: TempCleanup) => Promise<T>): Promise<T> {
   const temp = new TempCleanup();
   try {
@@ -277,6 +298,62 @@ describe.concurrent("gnhf e2e cli", () => {
     });
   }, 30_000);
 
+  it("runs Command Code through the native print-mode adapter", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "agentArgsOverride:",
+          "  commandcode:",
+          "    - --model",
+          "    - claude-sonnet-4-6",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+      expect(git(["log", "-1", "--pretty=%s"], cwd)).toBe(
+        "gnhf 1: mock commandcode completed",
+      );
+      expect(readFileSync(join(cwd, "README.md"), "utf-8")).toContain(
+        "mock commandcode change",
+      );
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        args: string[];
+        prompt: string;
+      };
+      expect(invoke.event).toBe("invoke");
+      expect(invoke.args).toEqual(
+        expect.arrayContaining([
+          "--model",
+          "claude-sonnet-4-6",
+          "-p",
+          "--trust",
+          "--skip-onboarding",
+          "--yolo",
+        ]),
+      );
+      expect(invoke.prompt).toContain("ship it");
+      expect(invoke.prompt).toContain("gnhf final output contract");
+    });
+  }, 30_000);
+
   it.each([
     ["preset: gnhf", "commitMessage:\n  preset: gnhf\n"],
     ["preset: angular", "commitMessage:\n  preset: angular\n"],
@@ -385,6 +462,11 @@ describe.concurrent("gnhf e2e cli", () => {
     {
       label: "agentArgsOverride.copilot: gnhf-managed flag",
       yaml: "agentArgsOverride:\n  copilot:\n    - --output-format=json\n",
+      expected: "managed by gnhf",
+    },
+    {
+      label: "agentArgsOverride.commandcode: gnhf-managed flag",
+      yaml: "agentArgsOverride:\n  commandcode:\n    - --print\n",
       expected: "managed by gnhf",
     },
     {
