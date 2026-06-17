@@ -34,6 +34,17 @@ vi.mock("./copilot.js", () => {
   return { CopilotAgent };
 });
 
+vi.mock("./commandcode.js", () => {
+  const CommandCodeAgent = vi.fn(function (
+    this: Record<string, unknown>,
+    deps?: Record<string, unknown>,
+  ) {
+    this.name = "commandcode";
+    this.deps = deps;
+  });
+  return { CommandCodeAgent };
+});
+
 vi.mock("./cursor.js", () => {
   const CursorAgent = vi.fn(function (
     this: Record<string, unknown>,
@@ -96,6 +107,7 @@ import { createAgent } from "./factory.js";
 import { AcpAgent } from "./acp.js";
 import { ClaudeAgent } from "./claude.js";
 import { CopilotAgent } from "./copilot.js";
+import { CommandCodeAgent } from "./commandcode.js";
 import { CursorAgent } from "./cursor.js";
 import { CodexAgent } from "./codex.js";
 import { OpenCodeAgent } from "./opencode.js";
@@ -254,6 +266,76 @@ describe("createAgent", () => {
       bin: undefined,
       extraArgs: undefined,
       schema: withStopSchema,
+    });
+  });
+
+  it("creates a CommandCodeAgent when name is 'commandcode'", () => {
+    const agent = createAgent(
+      "commandcode",
+      stubRunInfo,
+      undefined,
+      undefined,
+      {
+        includeStopField: false,
+      },
+    );
+    expect(CommandCodeAgent).toHaveBeenCalledWith({
+      bin: undefined,
+      extraArgs: undefined,
+      schema: noStopSchema,
+    });
+    expect(agent.name).toBe("commandcode");
+  });
+
+  it("passes per-agent extra args through to the CommandCodeAgent", () => {
+    const agent = createAgent(
+      "commandcode",
+      stubRunInfo,
+      undefined,
+      ["--model", "claude-sonnet-4-6"],
+      { includeStopField: false },
+    );
+
+    expect(CommandCodeAgent).toHaveBeenCalledWith({
+      bin: undefined,
+      extraArgs: ["--model", "claude-sonnet-4-6"],
+      schema: noStopSchema,
+    });
+    expect(agent.name).toBe("commandcode");
+  });
+
+  it("hands CommandCodeAgent a schema that requires should_fully_stop when includeStopField is true", () => {
+    createAgent("commandcode", stubRunInfo, undefined, undefined, {
+      includeStopField: true,
+    });
+    expect(CommandCodeAgent).toHaveBeenCalledWith({
+      bin: undefined,
+      extraArgs: undefined,
+      schema: withStopSchema,
+    });
+  });
+
+  it("hands CommandCodeAgent a schema with configured commit message fields", () => {
+    createAgent("commandcode", stubRunInfo, undefined, undefined, {
+      includeStopField: false,
+      commitFields: [
+        { name: "type", allowed: ["feat", "fix"] },
+        { name: "scope" },
+      ],
+    });
+
+    expect(CommandCodeAgent).toHaveBeenCalledWith({
+      bin: undefined,
+      extraArgs: undefined,
+      schema: {
+        ...noStopSchema,
+        properties: {
+          ...noStopSchema.properties,
+          type: { type: "string", enum: ["feat", "fix"] },
+          scope: { type: "string" },
+        },
+        required: [...noStopSchema.required, "type", "scope"],
+      },
     });
   });
 

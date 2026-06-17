@@ -48,7 +48,7 @@ You wake up to a branch full of clean work and a log of everything that happened
 - **Long running** — each iteration is committed on success, rolled back on failure except commit failures preserved for repair, with sensible retries; retryable hard agent errors back off exponentially while agent-reported failures continue immediately
 - **Live terminal title** — interactive runs keep your terminal title updated with live status, token totals, and commit count, then clear or restore it on exit depending on terminal support; token totals prefixed with `~` are estimates
 - **Exit summary**: every run ends with a permanent summary covering elapsed time, branch, iterations, tokens, branch diff stats, local notes/log paths, and review commands
-- **Agent-agnostic**: works with Claude Code, Codex, Rovo Dev, OpenCode, GitHub Copilot CLI, Pi, or ACP targets out of the box
+- **Agent-agnostic**: works with Claude Code, Codex, Rovo Dev, OpenCode, GitHub Copilot CLI, Pi, Command Code, or ACP targets out of the box
 
 ## Quick Start
 
@@ -203,7 +203,7 @@ If you run `gnhf` on an existing `gnhf/` branch with a different prompt, gnhf as
 
 | Flag                     | Description                                                                                                      | Default                |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| `--agent <agent>`        | Agent to use (`claude`, `codex`, `rovodev`, `opencode`, `copilot`, `cursor`, `pi`, or `acp:<target-or-command>`) | config file (`claude`) |
+| `--agent <agent>`        | Agent to use (`claude`, `codex`, `rovodev`, `opencode`, `copilot`, `cursor`, `pi`, `commandcode`, or `acp:<target-or-command>`) | config file (`claude`) |
 | `--max-iterations <n>`   | Abort after `n` total iterations                                                                                 | unlimited              |
 | `--max-tokens <n>`       | Abort after `n` total input+output tokens                                                                        | unlimited              |
 | `--stop-when <cond>`     | End when the agent reports this condition, after any commit-failure repair; persists across resume               | unlimited              |
@@ -219,7 +219,7 @@ If you run `gnhf` on an existing `gnhf/` branch with a different prompt, gnhf as
 Config lives at `~/.gnhf/config.yml`:
 
 ```yaml
-# Agent to use by default (claude, codex, rovodev, opencode, copilot, cursor, pi, or acp:<target-or-command>)
+# Agent to use by default (claude, codex, rovodev, opencode, copilot, cursor, pi, commandcode, or acp:<target-or-command>)
 agent: claude
 
 # Custom paths to native agent binaries (optional)
@@ -228,6 +228,7 @@ agent: claude
 #   codex: /path/to/custom-codex
 #   copilot: /path/to/custom-copilot
 #   pi: /path/to/custom-pi
+#   commandcode: /path/to/custom-command-code
 
 # Native agent CLI arg overrides (optional)
 # agentArgsOverride:
@@ -247,6 +248,11 @@ agent: claude
 #     - gpt-5.5
 #     - --thinking
 #     - high
+#   commandcode:
+#     - --model
+#     - claude-sonnet-4-6
+#     - --max-turns
+#     - "30"
 
 # Custom ACP target commands (optional)
 # acpRegistryOverrides:
@@ -271,7 +277,7 @@ If the file does not exist yet, `gnhf` creates it on first run using the resolve
 CLI flags override config file values. `--prevent-sleep` accepts `on`/`off` as well as `true`/`false`; the config file always uses a boolean.
 The iteration and token caps are runtime-only flags and are not persisted in `config.yml`; `--stop-when` is persisted per run for resume, but not in config.
 
-`agentArgsOverride.<name>` lets you pass through extra CLI flags for native agents (`claude`, `codex`, `rovodev`, `opencode`, `copilot`, `cursor`, or `pi`).
+`agentArgsOverride.<name>` lets you pass through extra CLI flags for native agents (`claude`, `codex`, `rovodev`, `opencode`, `copilot`, `cursor`, `pi`, or `commandcode`).
 ACP targets do not support path or arg overrides in this version.
 Use `acpRegistryOverrides` to map `acp:<target>` names to custom spawn commands for local, forked, or beta ACP agents.
 You can also pass a raw custom ACP server command directly as a quoted `acp:` spec, for example `gnhf --agent 'acp:./bin/dev-acp --profile ci' "fix the tests"`.
@@ -300,6 +306,7 @@ agentPathOverride:
   copilot: ~/bin/copilot-wrapper
   cursor: ~/bin/cursor-wrapper
   pi: ~/bin/pi-wrapper
+  commandcode: ~/bin/command-code-wrapper
 ```
 
 Paths may be absolute, bare executable names already on your `PATH`, `~`-prefixed, or relative to the config directory (`~/.gnhf/`). The override replaces only the binary name; all standard arguments are preserved, so the replacement must be CLI-compatible with the original agent. On Windows, `.cmd` and `.bat` wrappers are supported, including bare names resolved from `PATH`. For `rovodev`, the override must point to an `acli`-compatible binary since gnhf invokes it as `<bin> rovodev serve ...`.
@@ -321,7 +328,7 @@ Set `GNHF_TELEMETRY=0` to turn it off.
 
 ## Agents
 
-`gnhf` supports seven native agents plus ACP targets. ACP support is powered by [`acpx`](https://github.com/openclaw/acpx), which is bundled with `gnhf` and provides the runtime and agent registry for `acp:<target-or-command>` specs.
+`gnhf` supports eight native agents plus ACP targets. ACP support is powered by [`acpx`](https://github.com/openclaw/acpx), which is bundled with `gnhf` and provides the runtime and agent registry for `acp:<target-or-command>` specs.
 
 | Agent              | Flag                              | Requirements                                                                                                                                                                        | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -330,6 +337,7 @@ Set `GNHF_TELEMETRY=0` to turn it off.
 | GitHub Copilot CLI | `--agent copilot`                 | Install GitHub Copilot CLI and sign in first.                                                                                                                                       | `gnhf` invokes `copilot` directly in non-interactive JSONL mode. Copilot currently exposes assistant output tokens, but not full input/cache token totals; see https://github.com/github/copilot-cli/issues/1152.                                                                                                                                                                                                                                                                                     |
 | Cursor CLI         | `--agent cursor`                  | Install Cursor's CLI and sign in first (`cursor agent login` for the editor launcher, or `agent login` for the standalone CLI).                                                     | `gnhf` invokes `cursor agent` when `cursor` exposes the agent subcommand, or standalone `cursor-agent`/Cursor `agent` binaries otherwise, in non-interactive `--print --output-format stream-json --stream-partial-output` mode with `--trust` and `--force`. It embeds the output schema in the prompt, streams partial assistant deltas, and parses the final `result` event. Pass your own `--yolo`, `--plan`, or `--mode` to manage execution permissions; `--sandbox` can still tune sandboxing. |
 | Pi                 | `--agent pi`                      | Install the `pi` CLI and configure a usable provider/model first.                                                                                                                   | `gnhf` invokes `pi` directly in JSON mode, appends the final output schema to the prompt, and disables Pi session persistence with `--no-session`.                                                                                                                                                                                                                                                                                                                                                    |
+| Command Code       | `--agent commandcode`             | Install Command Code (`npm i -g command-code`) and log in with `cmd login` first.                                                                                                   | `gnhf` invokes `command-code` in headless `-p` print mode with `--trust`, `--skip-onboarding`, `--yolo`, and `--max-turns 30`. It embeds the output schema in the prompt and parses structured JSON from stdout. Pass your own `--max-turns` or `--add-dir` to adjust the turn limit or add extra workspace directories. The CLI reports no token usage, so gnhf estimates it (totals render with a `~` prefix) and `--max-tokens` still applies.                                                                                                                                                                      |
 | Rovo Dev           | `--agent rovodev`                 | Install Atlassian's `acli` and authenticate it with Rovo Dev first.                                                                                                                 | `gnhf` starts a local `acli rovodev serve --disable-session-token <port>` process automatically in the repo workspace.                                                                                                                                                                                                                                                                                                                                                                                |
 | OpenCode           | `--agent opencode`                | Install `opencode` and configure at least one usable model provider first.                                                                                                          | `gnhf` starts a local `opencode serve --hostname 127.0.0.1 --port <port> --print-logs` process automatically, creates a per-run session, and applies a blanket allow rule so tool calls do not block on prompts.                                                                                                                                                                                                                                                                                      |
 | ACP target         | `--agent acp:<target-or-command>` | Install and authenticate the target supported by the bundled [`acpx`](https://github.com/openclaw/acpx) registry, such as `acp:gemini`, or pass a quoted custom ACP server command. | `gnhf` runs the target through ACP with a persistent per-run session under `.gnhf/runs/<runId>/acp-sessions`; token usage and `--max-tokens` use ACP `used` deltas when available, with prompt-length plus tool-call estimates as a fallback, and `agentPathOverride` and `agentArgsOverride` do not apply.                                                                                                                                                                                           |

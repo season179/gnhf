@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import yaml from "js-yaml";
 import type { CommitMessageConfig } from "./commit-message.js";
 import { normalizeCommitMessageConfig } from "./commit-message-config.js";
+import { isReservedCommandCodeArg } from "./agents/commandcode.js";
 import { InvalidConfigError } from "./config-errors.js";
 
 export const AGENT_NAMES = [
@@ -11,6 +12,7 @@ export const AGENT_NAMES = [
   "codex",
   "rovodev",
   "opencode",
+  "commandcode",
   "copilot",
   "cursor",
   "pi",
@@ -404,6 +406,8 @@ function isReservedAgentArg(agent: AgentName, arg: string): boolean {
         arg === "serve" ||
         arg === "--disable-session-token"
       );
+    case "commandcode":
+      return isReservedCommandCodeArg(arg);
     case "copilot":
       return (
         arg === "-p" ||
@@ -933,6 +937,7 @@ function serializeConfig(config: Config): string {
     "# agentPathOverride:",
     "#   claude: /path/to/custom-claude",
     "#   codex: /path/to/custom-codex",
+    "#   commandcode: /path/to/custom-command-code",
     "#   copilot: /path/to/custom-copilot",
     "#   cursor: /path/to/custom-cursor",
     "#   pi: /path/to/custom-pi",
@@ -946,6 +951,9 @@ function serializeConfig(config: Config): string {
     "#     - -c",
     '#     - model_reasoning_effort="high"',
     "#     - --full-auto",
+    "#   commandcode:",
+    "#     - --model",
+    "#     - claude-sonnet-4-6",
     "#   copilot:",
     "#     - --model",
     "#     - gpt-5.4",

@@ -8,6 +8,7 @@ import { getAcpTarget, isAcpSpec, type AgentSpec } from "../config.js";
 import type { RunInfo } from "../run.js";
 import { AcpAgent } from "./acp.js";
 import { ClaudeAgent } from "./claude.js";
+import { CommandCodeAgent } from "./commandcode.js";
 import { CopilotAgent } from "./copilot.js";
 import { CodexAgent } from "./codex.js";
 import { CursorAgent } from "./cursor.js";
@@ -55,6 +56,12 @@ export function createAgent(
       return new CodexAgent(runInfo.schemaPath, {
         bin: pathOverride,
         extraArgs: agentArgsOverride,
+      });
+    case "commandcode":
+      return new CommandCodeAgent({
+        bin: pathOverride,
+        extraArgs: agentArgsOverride,
+        schema,
       });
     case "copilot":
       return new CopilotAgent({

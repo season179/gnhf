@@ -34,6 +34,7 @@ const BOOTSTRAP_CONFIG_TEMPLATE = (agent: string) =>
     "# agentPathOverride:",
     "#   claude: /path/to/custom-claude",
     "#   codex: /path/to/custom-codex",
+    "#   commandcode: /path/to/custom-command-code",
     "#   copilot: /path/to/custom-copilot",
     "#   cursor: /path/to/custom-cursor",
     "#   pi: /path/to/custom-pi",
@@ -47,6 +48,9 @@ const BOOTSTRAP_CONFIG_TEMPLATE = (agent: string) =>
     "#     - -c",
     '#     - model_reasoning_effort="high"',
     "#     - --full-auto",
+    "#   commandcode:",
+    "#     - --model",
+    "#     - claude-sonnet-4-6",
     "#   copilot:",
     "#     - --model",
     "#     - gpt-5.4",
@@ -321,6 +325,9 @@ describe("loadConfig", () => {
         "  opencode:",
         "    - --model",
         "    - gpt-5",
+        "  commandcode:",
+        "    - --model",
+        "    - claude-sonnet-4-6",
         "  copilot:",
         "    - --model",
         "    - gpt-5.4",
@@ -345,6 +352,7 @@ describe("loadConfig", () => {
       codex: ["-m", "gpt-5.4"],
       rovodev: ["--profile", "work"],
       opencode: ["--model", "gpt-5"],
+      commandcode: ["--model", "claude-sonnet-4-6"],
       copilot: ["--model", "gpt-5.4"],
       cursor: ["--model", "gpt-5"],
       pi: [
@@ -882,6 +890,65 @@ describe("loadConfig", () => {
       ],
     });
   });
+
+  it("allows safe agentArgsOverride.commandcode flags", () => {
+    mockReadFileSync.mockReturnValue(
+      'agentArgsOverride:\n  commandcode:\n    - --model\n    - claude-sonnet-4-6\n    - --max-turns\n    - "30"\n',
+    );
+
+    const config = loadConfig();
+
+    expect(config.agentArgsOverride).toEqual({
+      commandcode: ["--model", "claude-sonnet-4-6", "--max-turns", "30"],
+    });
+  });
+
+  it("allows --add-dir in agentArgsOverride.commandcode", () => {
+    mockReadFileSync.mockReturnValue(
+      "agentArgsOverride:\n  commandcode:\n    - --add-dir\n    - ../packages/lib\n",
+    );
+
+    const config = loadConfig();
+
+    expect(config.agentArgsOverride).toEqual({
+      commandcode: ["--add-dir", "../packages/lib"],
+    });
+  });
+
+  it.each([
+    "-p",
+    "--print",
+    "-t",
+    "--trust",
+    "--skip-onboarding",
+    "--yolo",
+    "--dangerously-skip-permissions",
+    "-r",
+    "--resume",
+    "--resume=chat-id",
+    "-c",
+    "--continue",
+    "--list-models",
+    "--ide-setup",
+    "--learn-taste",
+    "--permission-mode",
+    "--auto-accept",
+    "--plan",
+    "login",
+    "logout",
+    "status",
+  ])(
+    "throws when agentArgsOverride.commandcode contains reserved flag %s",
+    (flag) => {
+      mockReadFileSync.mockReturnValue(
+        `agentArgsOverride:\n  commandcode:\n    - ${flag}\n`,
+      );
+
+      expect(() => loadConfig()).toThrow(
+        /agentArgsOverride\.commandcode\[0\].*managed by gnhf/,
+      );
+    },
+  );
 
   it.each([
     "--mode",

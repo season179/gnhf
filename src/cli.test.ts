@@ -20,6 +20,7 @@ const TEST_AGENT_NAMES = [
   "codex",
   "rovodev",
   "opencode",
+  "commandcode",
   "copilot",
   "cursor",
   "pi",

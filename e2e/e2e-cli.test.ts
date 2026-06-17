@@ -143,6 +143,27 @@ function createMockCursorEnv(
   };
 }
 
+function createMockCommandCodeEnv(
+  temp: TempCleanup,
+  configYaml: string,
+): { env: NodeJS.ProcessEnv; mockLogPath: string } {
+  const home = temp.mkdir("home");
+  mkdirSync(join(home, ".gnhf"), { recursive: true });
+  writeFileSync(join(home, ".gnhf", "config.yml"), configYaml, "utf-8");
+  const logDir = temp.mkdir("logs");
+  const mockLogPath = join(logDir, "mock-commandcode.jsonl");
+  return {
+    env: {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      PATH: `${fixtureBinDir}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
+      GNHF_MOCK_COMMANDCODE_LOG_PATH: mockLogPath,
+    },
+    mockLogPath,
+  };
+}
+
 async function withTemp<T>(fn: (temp: TempCleanup) => Promise<T>): Promise<T> {
   const temp = new TempCleanup();
   try {
@@ -277,6 +298,255 @@ describe.concurrent("gnhf e2e cli", () => {
     });
   }, 30_000);
 
+  it("runs Command Code through the native print-mode adapter", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "agentArgsOverride:",
+          "  commandcode:",
+          "    - --model",
+          "    - claude-sonnet-4-6",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+      expect(git(["log", "-1", "--pretty=%s"], cwd)).toBe(
+        "gnhf 1: mock commandcode completed",
+      );
+      expect(readFileSync(join(cwd, "README.md"), "utf-8")).toContain(
+        "mock commandcode change",
+      );
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        args: string[];
+        prompt: string;
+      };
+      expect(invoke.event).toBe("invoke");
+      expect(invoke.args).toEqual(
+        expect.arrayContaining([
+          "--model",
+          "claude-sonnet-4-6",
+          "-p",
+          "--trust",
+          "--skip-onboarding",
+          "--yolo",
+          "--max-turns",
+          "30",
+        ]),
+      );
+      const printIndex = invoke.args.indexOf("-p");
+      expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--trust"));
+      expect(printIndex).toBeGreaterThan(
+        invoke.args.indexOf("--skip-onboarding"),
+      );
+      expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--yolo"));
+      expect(printIndex).toBeGreaterThan(invoke.args.indexOf("--max-turns"));
+      expect(invoke.prompt).toContain("ship it");
+      expect(invoke.prompt).toContain("gnhf final output contract");
+    });
+  }, 30_000);
+
+  it("passes -m model short flag through agentArgsOverride", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "agentArgsOverride:",
+          "  commandcode:",
+          "    - -m",
+          "    - claude-sonnet-4-6",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        args: string[];
+      };
+      expect(invoke.event).toBe("invoke");
+      expect(invoke.args).toEqual(
+        expect.arrayContaining(["-m", "claude-sonnet-4-6"]),
+      );
+    });
+  }, 30_000);
+
+  it("passes --add-dir through agentArgsOverride for multi-directory workspaces", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "agentArgsOverride:",
+          "  commandcode:",
+          "    - --add-dir",
+          "    - ../packages/lib",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        args: string[];
+      };
+      expect(invoke.event).toBe("invoke");
+      expect(invoke.args).toEqual(
+        expect.arrayContaining(["--add-dir", "../packages/lib"]),
+      );
+    });
+  }, 30_000);
+
+  it("uses conventional commit subjects when Command Code returns type and scope", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "commitMessage:",
+          "  preset: conventional",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+      expect(git(["log", "-1", "--pretty=%s"], cwd)).toBe(
+        "feat(commandcode): mock commandcode completed",
+      );
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        prompt: string;
+      };
+      expect(invoke.prompt).toContain("type: Commit type");
+      expect(invoke.prompt).toContain("scope: Optional commit scope");
+    });
+  }, 30_000);
+
+  it("honors --stop-when when Command Code returns should_fully_stop", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env, mockLogPath } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--stop-when", "task is done", "--max-iterations", "5"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      expect(git(["rev-list", "--count", "HEAD"], cwd)).toBe("2");
+      expect(result.stdout.replace(/\x1b\[[0-9;]*m/g, "")).toContain(
+        "stop condition met",
+      );
+
+      const [invokeLine] = readFileSync(mockLogPath, "utf-8")
+        .trim()
+        .split("\n");
+      const invoke = JSON.parse(invokeLine!) as {
+        event: string;
+        prompt: string;
+      };
+      expect(invoke.prompt).toContain("should_fully_stop");
+      expect(invoke.prompt).toContain("task is done");
+    });
+  }, 30_000);
+
+  it("reports estimated token usage with a ~ prefix for Command Code runs", async () => {
+    await withTemp(async (temp) => {
+      const cwd = createRepo(temp);
+      const { env } = createMockCommandCodeEnv(
+        temp,
+        [
+          "agent: commandcode",
+          "agentPathOverride:",
+          "  commandcode: commandcode-mock",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runCli(
+        cwd,
+        ["ship it", "--max-iterations", "1"],
+        env,
+      );
+
+      expect(result.code).toBe(0);
+      // Command Code emits no usage in print mode, so gnhf estimates from text
+      // length and the summary marks both token totals with a `~` prefix.
+      const plain = result.stdout.replace(/\x1b\[[0-9;]*m/g, "");
+      expect(plain).toMatch(/~\S+ in/);
+      expect(plain).toMatch(/~\S+ out/);
+    });
+  }, 30_000);
+
   it.each([
     ["preset: gnhf", "commitMessage:\n  preset: gnhf\n"],
     ["preset: angular", "commitMessage:\n  preset: angular\n"],
@@ -385,6 +655,11 @@ describe.concurrent("gnhf e2e cli", () => {
     {
       label: "agentArgsOverride.copilot: gnhf-managed flag",
       yaml: "agentArgsOverride:\n  copilot:\n    - --output-format=json\n",
+      expected: "managed by gnhf",
+    },
+    {
+      label: "agentArgsOverride.commandcode: gnhf-managed flag",
+      yaml: "agentArgsOverride:\n  commandcode:\n    - --print\n",
       expected: "managed by gnhf",
     },
     {
