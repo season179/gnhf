@@ -389,6 +389,96 @@ describe("PiAgent", () => {
     await expect(promise).rejects.toThrow("Failed to parse pi output");
   });
 
+  it("recovers JSON when the model prepends a prose preamble", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new PiAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    emitJson(proc, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: `All checks pass: tests, tsc, lint, build.\n\n${finalOutput({
+          summary: "did the work",
+        })}`,
+      },
+    });
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: { success: true, summary: "did the work" },
+    });
+  });
+
+  it("recovers JSON wrapped in markdown fences", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new PiAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    emitJson(proc, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: `\`\`\`json\n${finalOutput({ summary: "fenced result" })}\n\`\`\``,
+      },
+    });
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: { success: true, summary: "fenced result" },
+    });
+  });
+
+  it("recovers fenced JSON that follows a prose preamble", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new PiAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    emitJson(proc, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: `Here is the result:\n\n\`\`\`json\n${finalOutput({
+          summary: "prose then fence",
+        })}\n\`\`\``,
+      },
+    });
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: { success: true, summary: "prose then fence" },
+    });
+  });
+
+  it("skips a trailing non-schema object and recovers the valid one", async () => {
+    // The schema-valid object is NOT the rightmost: a non-matching object
+    // follows it. Naive right-to-left selection would pick the trailing
+    // distractor (and fail validation), so this only passes because the
+    // accepts predicate skips objects that do not match the schema.
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const agent = new PiAgent();
+
+    const promise = agent.run("test prompt", "/work/dir");
+    emitJson(proc, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: `${finalOutput({
+          summary: "real result",
+        })}\n\ntrailing debug log: {"debug":true,"note":"ignore me"}`,
+      },
+    });
+    proc.emit("close", 0);
+
+    await expect(promise).resolves.toMatchObject({
+      output: { success: true, summary: "real result" },
+    });
+  });
+
   it("rejects invalid output shape", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
