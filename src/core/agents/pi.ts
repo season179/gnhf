@@ -14,7 +14,6 @@ import {
   setupAbortHandler,
   setupChildProcessHandlers,
 } from "./stream-utils.js";
-import { extractLastJsonObject, stripJsonFences } from "./json-extract.js";
 
 interface PiAgentDeps {
   bin?: string;
@@ -24,8 +23,6 @@ interface PiAgentDeps {
 }
 
 type JsonRecord = Record<string, unknown>;
-
-type SegmentBlock = { delta: string; complete?: string };
 
 function shouldUseWindowsShell(
   bin: string,
@@ -192,68 +189,11 @@ function compactJson(value: unknown): string {
   }
 }
 
-/**
- * Pick the structured-output JSON object from an ordered list of assistant
- * turn texts. pi is agentic: it often emits the valid JSON object in one turn,
- * then keeps working and ends with a prose summary, so the object is not the
- * last thing it says. We scan turns newest-first and prefer the strongest
- * signal:
- *
- *   Pass A - a whole turn that is itself the JSON object (optionally fenced)
- *            and satisfies `accepts`.
- *   Pass B - a JSON object embedded in a turn's prose that satisfies `accepts`.
- *
- * If nothing satisfies `accepts`, fall back to the most recent parseable object
- * (ignoring `accepts`) so the caller can run schema validation and surface a
- * precise "Invalid pi output" error rather than a generic parse failure.
- * Returns null only when no parseable JSON object exists anywhere.
- */
-export function selectAgentJson(
-  segments: string[],
-  accepts: (value: unknown) => boolean,
-): unknown | null {
-  const tryParse = (text: string): unknown | undefined => {
-    const cleaned = stripJsonFences(text);
-    if (!cleaned) return undefined;
-    try {
-      return JSON.parse(cleaned);
-    } catch {
-      return undefined;
-    }
-  };
-
-  // Pass A: a whole turn that is pure JSON and is a valid AgentOutput.
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const parsed = tryParse(segments[i]);
-    if (parsed !== undefined && accepts(parsed)) return parsed;
-  }
-  // Pass B: a valid AgentOutput object embedded in a turn's prose.
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const found = extractLastJsonObject(segments[i], accepts);
-    if (found !== null) {
-      try {
-        return JSON.parse(found);
-      } catch {
-        // keep scanning earlier turns
-      }
-    }
-  }
-  // Fallback: the most recent parseable object, valid or not, for diagnostics.
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const parsed = tryParse(segments[i]);
-    if (parsed !== undefined) return parsed;
-  }
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const found = extractLastJsonObject(segments[i]);
-    if (found !== null) {
-      try {
-        return JSON.parse(found);
-      } catch {
-        // keep scanning earlier turns
-      }
-    }
-  }
-  return null;
+function textByIndexToString(textByIndex: Map<number, string>): string {
+  return [...textByIndex.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, text]) => text)
+    .join("");
 }
 
 export class PiAgent implements Agent {
@@ -301,6 +241,8 @@ export class PiAgent implements Agent {
       }
 
       let latestAssistantMessage: JsonRecord | null = null;
+      const streamTextByIndex = new Map<number, string>();
+      const completeTextByIndex = new Map<number, string>();
       const usageByMessageKey = new Map<string, TokenUsage>();
       let lastEmittedUsage: TokenUsage = {
         inputTokens: 0,
@@ -310,56 +252,6 @@ export class PiAgent implements Agent {
       };
       let anonymousKeySeq = 0;
       let currentStreamingMessageKey: string | null = null;
-
-      // Accumulate assistant text per message/turn so we can recover the
-      // structured object even when pi keeps talking afterwards. Keyed by pi's
-      // stable message id when present, else a per-turn synthetic key - never
-      // by contentIndex or role, which collide across turns.
-      const finalizedSegments: string[] = [];
-      const finalizedKeys = new Set<string>();
-      const blocksByKey = new Map<string, Map<number, SegmentBlock>>();
-      let activeSegmentKey: string | null = null;
-      let syntheticSegmentSeq = 0;
-      let capturedAnyAssistant = false;
-
-      const segmentKeyFor = (message: JsonRecord | null): string => {
-        const stable = message ? messageKey(message) : null;
-        if (stable !== null) {
-          activeSegmentKey = stable;
-          return stable;
-        }
-        if (activeSegmentKey !== null) return activeSegmentKey;
-        const key = `pi-turn-${syntheticSegmentSeq++}`;
-        activeSegmentKey = key;
-        return key;
-      };
-
-      const blocksFor = (key: string): Map<number, SegmentBlock> => {
-        let blocks = blocksByKey.get(key);
-        if (!blocks) {
-          blocks = new Map();
-          blocksByKey.set(key, blocks);
-        }
-        return blocks;
-      };
-
-      const joinBlocks = (key: string): string => {
-        const blocks = blocksByKey.get(key);
-        if (!blocks) return "";
-        return [...blocks.entries()]
-          .sort(([a], [b]) => a - b)
-          .map(([, block]) => block.complete ?? block.delta)
-          .join("");
-      };
-
-      const finalizeSegment = (key: string, message: JsonRecord | null) => {
-        if (finalizedKeys.has(key)) return;
-        finalizedKeys.add(key);
-        const messageText = message ? textFromAssistantMessage(message) : "";
-        const text = messageText.trim() ? messageText : joinBlocks(key);
-        finalizedSegments.push(text);
-        if (activeSegmentKey === key) activeSegmentKey = null;
-      };
 
       const updateUsage = (message: JsonRecord, streaming = false) => {
         const usage = isRecord(message.usage)
@@ -409,13 +301,6 @@ export class PiAgent implements Agent {
       parseJSONLStream<JsonRecord>(child.stdout!, logStream, (event) => {
         if (!isRecord(event)) return;
 
-        if (event.type === "message_start" || event.type === "turn_start") {
-          // A new assistant turn begins: drop the active key so the next
-          // streamed text (or message_end) starts a fresh segment instead of
-          // merging into the previous turn when ids are absent.
-          activeSegmentKey = null;
-        }
-
         if (event.type === "message_update") {
           rememberAssistantMessage(event.message, true);
 
@@ -424,7 +309,6 @@ export class PiAgent implements Agent {
             const contentIndex =
               numberField(assistantEvent, ["contentIndex", "content_index"]) ??
               0;
-            const message = isRecord(event.message) ? event.message : null;
 
             if (assistantEvent.type === "text_delta") {
               const delta = stringField(assistantEvent, [
@@ -433,25 +317,20 @@ export class PiAgent implements Agent {
                 "content",
               ]);
               if (delta) {
-                capturedAnyAssistant = true;
-                const blocks = blocksFor(segmentKeyFor(message));
-                const block = blocks.get(contentIndex) ?? { delta: "" };
-                block.delta += delta;
-                blocks.set(contentIndex, block);
-                const visible = block.delta.trim();
+                const next =
+                  (streamTextByIndex.get(contentIndex) ?? "") + delta;
+                streamTextByIndex.set(contentIndex, next);
+                const visible = next.trim();
                 if (visible) onMessage?.(visible);
               }
             }
 
             if (assistantEvent.type === "text_end") {
-              capturedAnyAssistant = true;
-              const blocks = blocksFor(segmentKeyFor(message));
-              const block = blocks.get(contentIndex) ?? { delta: "" };
               const text =
                 stringField(assistantEvent, ["text", "content"]) ??
-                block.delta;
-              block.complete = text;
-              blocks.set(contentIndex, block);
+                streamTextByIndex.get(contentIndex) ??
+                "";
+              completeTextByIndex.set(contentIndex, text);
               const visible = text.trim();
               if (visible) onMessage?.(visible);
             }
@@ -461,28 +340,17 @@ export class PiAgent implements Agent {
         if (event.type === "message_end" || event.type === "turn_end") {
           rememberAssistantMessage(event.message, true);
           currentStreamingMessageKey = null;
-          const message = isRecord(event.message) ? event.message : null;
-          if (message && roleOf(message) === "assistant") {
-            capturedAnyAssistant = true;
-            finalizeSegment(segmentKeyFor(message), message);
-          } else if (activeSegmentKey !== null) {
-            finalizeSegment(activeSegmentKey, null);
-          }
         }
 
         if (
           event.type === "agent_end" &&
           Array.isArray(event.messages) &&
-          !capturedAnyAssistant
+          !latestAssistantMessage
         ) {
           for (let i = event.messages.length - 1; i >= 0; i -= 1) {
             const message = event.messages[i];
             if (roleOf(message) === "assistant") {
               rememberAssistantMessage(message);
-              finalizedSegments.push(
-                textFromAssistantMessage(message as JsonRecord),
-              );
-              capturedAnyAssistant = true;
               break;
             }
           }
@@ -504,41 +372,30 @@ export class PiAgent implements Agent {
           }
         }
 
-        // Finalize any assistant turn still in progress (pi exited without a
-        // closing message_end/turn_end for it).
-        for (const key of blocksByKey.keys()) {
-          if (!finalizedKeys.has(key)) finalizeSegment(key, null);
-        }
+        const finalText =
+          textFromAssistantMessage(latestAssistantMessage).trim() ||
+          textByIndexToString(completeTextByIndex).trim() ||
+          textByIndexToString(streamTextByIndex).trim();
 
-        const hasText = finalizedSegments.some(
-          (segment) => segment.trim().length > 0,
-        );
-        if (!hasText) {
+        if (!finalText) {
           reject(new Error("pi returned no text output"));
           return;
         }
 
-        const acceptsValid = (value: unknown): boolean => {
-          try {
-            validateAgentOutput(value, this.schema);
-            return true;
-          } catch {
-            return false;
-          }
-        };
-
-        const candidate = selectAgentJson(finalizedSegments, acceptsValid);
-        if (candidate === null) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(finalText);
+        } catch (err) {
           reject(
             new Error(
-              "Failed to parse pi output: no JSON object found in assistant output",
+              `Failed to parse pi output: ${err instanceof Error ? err.message : err}`,
             ),
           );
           return;
         }
 
         try {
-          const output = validateAgentOutput(candidate, this.schema);
+          const output = validateAgentOutput(parsed, this.schema);
           resolve({ output, usage: lastEmittedUsage });
         } catch (err) {
           reject(

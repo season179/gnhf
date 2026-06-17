@@ -60,6 +60,13 @@ describe("extractLastJsonObject", () => {
     expect(extractLastJsonObject(text)).toBe('{"a":1}');
   });
 
+  it("terminates when a rejected object starts at index 0", () => {
+    // lastIndexOf("{", -1) clamps to 0, so a rejected brace at index 0 used to
+    // re-scan index 0 forever. The scan must end instead of spinning.
+    const text = '{"success":"yes","summary":"x"}';
+    expect(extractLastJsonObject(text, () => false)).toBeNull();
+  });
+
   it("continues scanning when the rightmost parsed object is rejected", () => {
     const text =
       'final {"success":true,"summary":"mentions {}","key_changes_made":[],"key_learnings":[]} trailing';

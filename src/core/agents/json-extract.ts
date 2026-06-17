@@ -80,6 +80,9 @@ export function extractLastJsonObject(
         // Keep scanning earlier objects when a candidate is not valid JSON.
       }
     }
+    // cursor === 0 is the leftmost possible brace; lastIndexOf("{", -1) clamps
+    // back to 0 and would re-scan it forever, so stop here.
+    if (cursor === 0) break;
     cursor = text.lastIndexOf("{", cursor - 1);
   }
   return null;
